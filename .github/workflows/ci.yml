@@ -1,9 +1,9 @@
 name: CI
 
+# Every push, on any branch (all branches live in this repo).
 on:
   push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
