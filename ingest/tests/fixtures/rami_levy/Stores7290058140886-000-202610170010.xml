@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Root>
+  <XmlDocVersion>1.0</XmlDocVersion>
+  <ChainId>7290058140886</ChainId>
+  <ChainName>רמי לוי שיווק השקמה</ChainName>
+  <LastUpdateDate>2026-10-17</LastUpdateDate>
+  <SubChains>
+    <SubChain>
+      <SubChainId>001</SubChainId>
+      <SubChainName>רמי לוי</SubChainName>
+      <Stores>
+        <Store>
+          <StoreId>039</StoreId>
+          <BikoretNo>3</BikoretNo>
+          <StoreType>1</StoreType>
+          <StoreName>באר שבע - ביג</StoreName>
+          <Address>חברון 21</Address>
+          <City>ב"ש</City>
+          <ZipCode>0</ZipCode>
+        </Store>
+        <Store>
+          <StoreId>002</StoreId>
+          <StoreName>תלפיות</StoreName>
+          <Address>יד חרוצים</Address>
+          <City>ירושלים</City>
+        </Store>
+      </Stores>
+    </SubChain>
+  </SubChains>
+</Root>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <ChainId>7290027600007</ChainId>
+  <SubChainId>001</SubChainId>
+  <StoreId>413</StoreId>
+  <Items>
+    <Item>
+      <PriceUpdateDate>2026-10-16 05:40</PriceUpdateDate>
+      <ItemCode>7290000000001</ItemCode>
+      <ItemType>1</ItemType>
+      <ItemName>חלב  תנובה 3% 1 ליטר</ItemName>
+      <ManufacturerName>תנובה</ManufacturerName>
+      <ManufactureCountry>IL</ManufactureCountry>
+      <UnitQty>ליטר</UnitQty>
+      <Quantity>1.00</Quantity>
+      <bIsWeighted>0</bIsWeighted>
+      <UnitOfMeasure>ליטר</UnitOfMeasure>
+      <QtyInPackage>0</QtyInPackage>
+      <ItemPrice>6.90</ItemPrice>
+      <UnitOfMeasurePrice>6.90</UnitOfMeasurePrice>
+      <AllowDiscount>1</AllowDiscount>
+      <ItemStatus>1</ItemStatus>
+    </Item>
+    <Item>
+      <PriceUpdateDate>2026-10-16 05:40</PriceUpdateDate>
+      <ItemCode>7290000000002</ItemCode>
+      <ItemType>1</ItemType>
+      <ItemName>לחם אחיד פרוס</ItemName>
+      <ManufacturerName>אנג'ל</ManufacturerName>
+      <Quantity>750</Quantity>
+      <UnitOfMeasure>גרם</UnitOfMeasure>
+      <bIsWeighted>0</bIsWeighted>
+      <ItemPrice>7.40</ItemPrice>
+      <UnitOfMeasurePrice>0.99</UnitOfMeasurePrice>
+    </Item>
+    <Item>
+      <PriceUpdateDate>2026-10-15 07:00</PriceUpdateDate>
+      <ItemCode>200</ItemCode>
+      <ItemType>0</ItemType>
+      <ItemName>עגבניה שרי</ItemName>
+      <bIsWeighted>1</bIsWeighted>
+      <UnitOfMeasure>ק"ג</UnitOfMeasure>
+      <ItemPrice>9.90</ItemPrice>
+    </Item>
+    <Item>
+      <ItemCode>7290000000003</ItemCode>
+      <ItemName>מוצר במחיר אפס</ItemName>
+      <ItemPrice>0</ItemPrice>
+    </Item>
+  </Items>
+</root>

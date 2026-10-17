@@ -1,0 +1,11 @@
+node_modules/
+.env
+.env.local
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+ingest/dumps/
+supabase/.temp/
+supabase/.branches/
+.DS_Store

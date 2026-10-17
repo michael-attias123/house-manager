@@ -1,0 +1,30 @@
+# Which supermarkets to load prices for. Stores are discovered automatically
+# from each chain's Stores file by city; pin `stores` to limit a chain to
+# specific branch codes (see `python -m house_ingest discover`).
+
+city:
+  # Spellings that appear in the chains' Stores files for באר שבע.
+  names: ["באר שבע", "באר-שבע", 'ב"ש', "באר שבע עיר"]
+  # CBS locality code, used by chains that publish a code instead of a name.
+  codes: ["9000"]
+
+# Upper bound per chain, to stay well inside Supabase's free 500 MB.
+max_stores_per_chain: 4
+
+chains:
+  - id: shufersal
+    name: שופרסל
+    scraper: SHUFERSAL
+  - id: rami_levy
+    name: רמי לוי
+    scraper: RAMI_LEVY
+  - id: osher_ad
+    name: אושר עד
+    scraper: OSHER_AD
+  - id: carrefour
+    name: קרפור
+    scraper: YAYNO_BITAN_AND_CARREFOUR
+  - id: tiv_taam
+    name: טיב טעם
+    scraper: TIV_TAAM
+    # stores: ["12"]   # example: pin to specific branch codes

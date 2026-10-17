@@ -1,0 +1,236 @@
+Logger       2026-10-17 21:18:45,210 INFO     [MainThread] logger.py:info Enabled scrapers: ['SHUFERSAL', 'RAMI_LEVY']
+Logger       2026-10-17 21:18:45,211 INFO     [Thread-1 (_run)] logger.py:info Limit is None
+Logger       2026-10-17 21:18:45,211 INFO     [Thread-1 (_run)] logger.py:info files_types is ['STORE_FILE']
+Logger       2026-10-17 21:18:45,212 INFO     [Thread-1 (_run)] logger.py:info file_name_regex is ^Stores\w*?\d{13}-\d+-(?:20261017|20261016|20261015)
+Logger       2026-10-17 21:18:45,212 INFO     [Thread-1 (_run)] logger.py:info Start scraping ['SHUFERSAL', 'RAMI_LEVY'].
+Logger       2026-10-17 21:18:45,253 WARNING  [Thread-1 (_run)] logger.py:warning scraper HET_COHEN_NEW_SOURCE is not stable, pass_expiration_date: 2027-01-01, datetime.now(): 2026-10-17
+Logger       2026-10-17 21:18:45,254 WARNING  [Thread-1 (_run)] logger.py:warning scraper MAHSANI_ASHUK_NEW_SOURCE is not stable, pass_expiration_date: 2027-01-01, datetime.now(): 2026-10-17
+Logger       2026-10-17 21:18:45,254 WARNING  [Thread-1 (_run)] logger.py:warning scraper HET_COHEN_NEW_SOURCE is not stable, pass_expiration_date: 2027-01-01, datetime.now(): 2026-10-17
+Logger       2026-10-17 21:18:45,254 WARNING  [Thread-1 (_run)] logger.py:warning scraper MAHSANI_ASHUK_NEW_SOURCE is not stable, pass_expiration_date: 2027-01-01, datetime.now(): 2026-10-17
+Logger       2026-10-17 21:18:45,254 WARNING  [Thread-1 (_run)] logger.py:warning scraper VICTORY_NEW_SOURCE is not stable, pass_expiration_date: 2027-01-01, datetime.now(): 2026-10-17
+Logger       2026-10-17 21:18:45,255 INFO     [Thread-1 (_run)] logger.py:info Starting scrapper <class 'il_supermarket_scarper.scrappers.shufersal.Shufersal'>
+Logger       2026-10-17 21:18:45,255 WARNING  [Thread-1 (_run)] logger.py:warning scraper VICTORY_NEW_SOURCE is not stable, pass_expiration_date: 2027-01-01, datetime.now(): 2026-10-17
+Logger       2026-10-17 21:18:45,255 INFO     [Thread-1 (_run)] logger.py:info Initialized Shufersal scraper withoutput: disk:/tmp/claude-0/ingest-work/Shufersalstatus database: <il_supermarket_scarper.utils.databases.json_file.JsonDataBase object at 0x7fb39a3af9e0>file output: <il_supermarket_scarper.utils.files.file_output.DiskFileOutput object at 0x7fb39a328a40>
+Logger       2026-10-17 21:18:45,255 INFO     [Thread-1 (_run)] logger.py:info scraping DumpFolderNames.SHUFERSAL
+Logger       2026-10-17 21:18:45,255 INFO     [Thread-1 (_run)] logger.py:info Starting scrapper <class 'il_supermarket_scarper.scrappers.ramilevy.RamiLevy'>
+Logger       2026-10-17 21:18:45,255 INFO     [Thread-1 (_run)] logger.py:info Initialized RamiLevy scraper withoutput: disk:/tmp/claude-0/ingest-work/RamiLevystatus database: <il_supermarket_scarper.utils.databases.json_file.JsonDataBase object at 0x7fb39a3af9e0>file output: <il_supermarket_scarper.utils.files.file_output.DiskFileOutput object at 0x7fb39a328a40>
+Logger       2026-10-17 21:18:45,256 INFO     [Thread-1 (_run)] logger.py:info scraping DumpFolderNames.RAMI_LEVY
+Logger       2026-10-17 21:18:45,256 INFO     [Thread-1 (_run)] logger.py:info [DumpFolderNames.SHUFERSAL] Starting run #1
+Logger       2026-10-17 21:18:45,256 INFO     [Thread-1 (_run)] logger.py:info [DumpFolderNames.RAMI_LEVY] Starting run #1
+Logger       2026-10-17 21:18:45,259 INFO     [Thread-1 (_run)] logger.py:info Open async connection to FTP server with url.retail.publishedprices.co.il , username: RamiLevi , password: 
+Logger       2026-10-17 21:18:45,262 DEBUG    [asyncio_0] logger.py:debug Didn't find cookie file
+Logger       2026-10-17 21:18:45,263 DEBUG    [asyncio_0] logger.py:debug On a new Session requesting url: method=GET, url=https://prices.shufersal.co.il/FileObject/UpdateCategory?catID=5, body=None
+Logger       2026-10-17 21:18:45,267 ERROR    [Thread-1 (_run)] logger.py:error Error collecting file details: [Errno -2] Name or service not known
+Logger       2026-10-17 21:18:45,267 ERROR    [Thread-1 (_run)] logger.py:error_execption got an execption:
+Traceback (most recent call last):
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/core/async_work.py", line 117, in stream_as_completed
+    source_item = listing_task.result()
+                  ^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/core/async_work.py", line 58, in next_source_item
+    return await anext(source)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/cerberus.py", line 164, in collect_files_details_from_site
+    async for entry in self.apply_limit(
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/engine.py", line 418, in apply_limit
+    async for file in intreable_:
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/engine.py", line 454, in filter_file_types
+    async for type_ in intreable:
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/engine.py", line 302, in filter_by_file_name_regex
+    async for file in intreable:
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/files/verified_downloads.py", line 120, in filter_already_downloaded
+    async for file in filelist:
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/engine.py", line 440, in unique_listings
+    async for item in iterable:
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/engine.py", line 359, in stream_to_list
+    async for file in intreable:
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/cerberus.py", line 115, in filter_by_file_extension
+    async for file in files:
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/engine.py", line 769, in filter_by_file_size
+    async for entry in files:
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/engine.py", line 262, in filter_bad_files
+    async for file in files:
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/engine.py", line 231, in register_all_saw_files_on_site
+    async for file in files:
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/network/connection.py", line 765, in collect_from_ftp
+    await producer
+  File "/usr/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/network/connection.py", line 692, in _sync_ftp_list
+    ftp = _open_ftp_tls(ftp_host, ftp_username, ftp_password, timeout)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/network/connection.py", line 781, in _open_ftp_tls
+    ftp = FTP_TLS(ftp_host, ftp_username, ftp_password, timeout=timeout)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/ftplib.py", line 718, in __init__
+    super().__init__(host, user, passwd, acct,
+  File "/usr/lib/python3.12/ftplib.py", line 121, in __init__
+    self.connect(host)
+  File "/usr/lib/python3.12/ftplib.py", line 158, in connect
+    self.sock = socket.create_connection((self.host, self.port), self.timeout,
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/socket.py", line 828, in create_connection
+    for res in getaddrinfo(host, port, 0, SOCK_STREAM):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/socket.py", line 963, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+socket.gaierror: [Errno -2] Name or service not known
+Logger       2026-10-17 21:18:45,271 INFO     [Thread-1 (_run)] logger.py:info Found the following files in /tmp/claude-0/ingest-work/RamiLevy
+Logger       2026-10-17 21:18:45,271 INFO     [Thread-1 (_run)] logger.py:info Folder /tmp/claude-0/ingest-work/RamiLevy: Num of Files= 0,Size= 0 MB
+Logger       2026-10-17 21:18:45,273 INFO     [Thread-1 (_run)] logger.py:info [DumpFolderNames.RAMI_LEVY] Run #1 completed. Files found: 0, Total files: 0
+Logger       2026-10-17 21:18:45,273 INFO     [Thread-1 (_run)] logger.py:info [DumpFolderNames.RAMI_LEVY] Exiting loop: single pass completed
+Logger       2026-10-17 21:18:45,273 INFO     [Thread-1 (_run)] logger.py:info done scraping DumpFolderNames.RAMI_LEVY
+Logger       2026-10-17 21:18:45,510 WARNING  [asyncio_0] logger.py:warning ProxyError: HTTPSConnectionPool(host='prices.shufersal.co.il', port=443): Max retries exceeded with url: /FileObject/UpdateCategory?catID=5 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel conn... (timeout=60, measured=0.248108, retries_left=3, retrying in 2 seconds)
+Logger       2026-10-17 21:18:47,510 DEBUG    [asyncio_0] logger.py:debug Didn't find cookie file
+Logger       2026-10-17 21:18:47,511 DEBUG    [asyncio_0] logger.py:debug On a new Session requesting url: method=GET, url=https://prices.shufersal.co.il/FileObject/UpdateCategory?catID=5, body=None
+Logger       2026-10-17 21:18:47,752 WARNING  [asyncio_0] logger.py:warning ProxyError: HTTPSConnectionPool(host='prices.shufersal.co.il', port=443): Max retries exceeded with url: /FileObject/UpdateCategory?catID=5 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel conn... (timeout=70, measured=0.241295, retries_left=2, retrying in 4 seconds)
+Logger       2026-10-17 21:18:51,762 DEBUG    [asyncio_0] logger.py:debug Didn't find cookie file
+Logger       2026-10-17 21:18:51,762 DEBUG    [asyncio_0] logger.py:debug On a new Session requesting url: method=GET, url=https://prices.shufersal.co.il/FileObject/UpdateCategory?catID=5, body=None
+Logger       2026-10-17 21:18:52,061 WARNING  [asyncio_0] logger.py:warning ProxyError: HTTPSConnectionPool(host='prices.shufersal.co.il', port=443): Max retries exceeded with url: /FileObject/UpdateCategory?catID=5 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel conn... (timeout=80, measured=0.299629, retries_left=1, retrying in 8 seconds)
+Logger       2026-10-17 21:19:00,062 DEBUG    [asyncio_0] logger.py:debug Didn't find cookie file
+Logger       2026-10-17 21:19:00,062 DEBUG    [asyncio_0] logger.py:debug On a new Session requesting url: method=GET, url=https://prices.shufersal.co.il/FileObject/UpdateCategory?catID=5, body=None
+Logger       2026-10-17 21:19:00,342 WARNING  [asyncio_0] logger.py:warning ProxyError: HTTPSConnectionPool(host='prices.shufersal.co.il', port=443): Max retries exceeded with url: /FileObject/UpdateCategory?catID=5 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel conn... (timeout=90, measured=0.28059, retries_left=0, retrying in 16 seconds)
+Logger       2026-10-17 21:19:00,343 ERROR    [asyncio_0] logger.py:error_execption got an execption:
+Traceback (most recent call last):
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/connectionpool.py", line 779, in urlopen
+    self._prepare_proxy(conn)
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/connectionpool.py", line 1074, in _prepare_proxy
+    conn.connect()
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/connection.py", line 844, in connect
+    self._tunnel()
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/connection.py", line 390, in _tunnel
+    raise OSError(
+OSError: Tunnel connection failed: 403 Forbidden
+
+The above exception was the direct cause of the following exception:
+
+urllib3.exceptions.ProxyError: ('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden'))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/requests/adapters.py", line 696, in send
+    resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/connectionpool.py", line 847, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/util/retry.py", line 555, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='prices.shufersal.co.il', port=443): Max retries exceeded with url: /FileObject/UpdateCategory?catID=5 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/core/retry.py", line 74, in __retry_internal
+    return func(timeout=_timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/network/connection.py", line 117, in retry_decorated_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/network/connection.py", line 325, in session_with_cookies
+    response_content = session.get(
+                       ^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/requests/sessions.py", line 671, in get
+    return self.request("GET", url, params=params, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/requests/sessions.py", line 651, in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/requests/sessions.py", line 784, in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/requests/adapters.py", line 723, in send
+    raise ProxyError(e, request=request)
+requests.exceptions.ProxyError: HTTPSConnectionPool(host='prices.shufersal.co.il', port=443): Max retries exceeded with url: /FileObject/UpdateCategory?catID=5 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))
+Logger       2026-10-17 21:19:00,347 ERROR    [Thread-1 (_run)] logger.py:error Error resolving listing root: HTTPSConnectionPool(host='prices.shufersal.co.il', port=443): Max retries exceeded with url: /FileObject/UpdateCategory?catID=5 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))
+Logger       2026-10-17 21:19:00,348 ERROR    [Thread-1 (_run)] logger.py:error_execption got an execption:
+Traceback (most recent call last):
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/connectionpool.py", line 779, in urlopen
+    self._prepare_proxy(conn)
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/connectionpool.py", line 1074, in _prepare_proxy
+    conn.connect()
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/connection.py", line 844, in connect
+    self._tunnel()
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/connection.py", line 390, in _tunnel
+    raise OSError(
+OSError: Tunnel connection failed: 403 Forbidden
+
+The above exception was the direct cause of the following exception:
+
+urllib3.exceptions.ProxyError: ('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden'))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/requests/adapters.py", line 696, in send
+    resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/connectionpool.py", line 847, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/urllib3/util/retry.py", line 555, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='prices.shufersal.co.il', port=443): Max retries exceeded with url: /FileObject/UpdateCategory?catID=5 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/core/async_work.py", line 109, in stream_as_completed
+    result = task.result()
+             ^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/multipage_web.py", line 140, in resolve_root
+    main_page_response = await self.session_with_cookies_by_chain(
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/engines/engine.py", line 528, in session_with_cookies_by_chain
+    return await asyncio.to_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/network/connection.py", line 98, in outer_wrapper
+    return retry_decorated_func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/decorator/__init__.py", line 247, in fun
+    return caller(func, *(extras + args), **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/core/retry.py", line 155, in retry_decorator
+    return __retry_internal(
+           ^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/core/retry.py", line 74, in __retry_internal
+    return func(timeout=_timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/network/connection.py", line 117, in retry_decorated_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/il_supermarket_scarper/utils/network/connection.py", line 325, in session_with_cookies
+    response_content = session.get(
+                       ^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/requests/sessions.py", line 671, in get
+    return self.request("GET", url, params=params, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/requests/sessions.py", line 651, in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/requests/sessions.py", line 784, in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/claude-0/ingest312/lib/python3.12/site-packages/requests/adapters.py", line 723, in send
+    raise ProxyError(e, request=request)
+requests.exceptions.ProxyError: HTTPSConnectionPool(host='prices.shufersal.co.il', port=443): Max retries exceeded with url: /FileObject/UpdateCategory?catID=5 (Caused by ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden')))
+Logger       2026-10-17 21:19:00,350 WARNING  [Thread-1 (_run)] logger.py:warning No files to download for file files_types=['STORE_FILE'],limit=None,store_id=None,when_date=None
+Logger       2026-10-17 21:19:00,350 WARNING  [Thread-1 (_run)] logger.py:warning No files to download for file files_types=['STORE_FILE'],limit=None,store_id=None,when_date=None
+Logger       2026-10-17 21:19:00,350 INFO     [Thread-1 (_run)] logger.py:info Found the following files in /tmp/claude-0/ingest-work/Shufersal
+Logger       2026-10-17 21:19:00,350 INFO     [Thread-1 (_run)] logger.py:info Folder /tmp/claude-0/ingest-work/Shufersal: Num of Files= 0,Size= 0 MB
+Logger       2026-10-17 21:19:00,353 INFO     [Thread-1 (_run)] logger.py:info [DumpFolderNames.SHUFERSAL] Run #1 completed. Files found: 0, Total files: 0
+Logger       2026-10-17 21:19:00,353 INFO     [Thread-1 (_run)] logger.py:info [DumpFolderNames.SHUFERSAL] Exiting loop: single pass completed
+Logger       2026-10-17 21:19:00,353 INFO     [Thread-1 (_run)] logger.py:info done scraping DumpFolderNames.SHUFERSAL

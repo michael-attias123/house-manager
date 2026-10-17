@@ -1,0 +1,6 @@
+# Downloads the Price Transparency files. Non-commercial license, by Sefi Erlich:
+# https://github.com/OpenIsraeliSupermarkets/israeli-supermarket-scarpers
+il-supermarket-scraper==1.0.16
+lxml>=5.2,<6
+psycopg[binary]>=3.2,<4
+PyYAML>=6,<7

@@ -1,0 +1,82 @@
+# house-manager
+
+A private household app for a couple: shared shopping list, supermarket basket
+comparison (Be'er Sheva), Splitwise-style expense splitting, recurring bills,
+chores, and savings insights. Hebrew, RTL, mobile-first PWA.
+
+## Layout
+
+```
+web/                React 19 + TypeScript + Vite PWA (Tailwind 4, TanStack Query, React Router 7)
+  src/app/          shell: feature registry (features.ts), Layout, router, dashboard
+  src/features/<f>/ one folder per feature (see below)
+  src/lib/          supabase client, money (agorot), dates (ISO days), recurrence, realtime
+  src/components/   shared UI (ui/*), ErrorBoundary
+supabase/
+  migrations/       one SQL file per feature; RLS on every table
+  tests/            local_stub.sql (Supabase stand-in) + db_test.sql (RLS/RPC checks)
+ingest/             Python 3.12: Price Transparency files → Postgres (daily GitHub Action)
+scripts/db-test.sh  migrations + db_test.sql + ingest tests on a throwaway Postgres
+docs/setup.md       deployment guide (Hebrew)
+```
+
+## Commands
+
+```bash
+cd web && pnpm dev | pnpm lint | pnpm typecheck | pnpm test | pnpm build
+./scripts/db-test.sh            # needs local Postgres binaries or DATABASE_URL
+cd ingest && python -m pytest   # parser tests (DB test runs via db-test.sh)
+```
+
+CI (`.github/workflows/ci.yml`) runs all of the above. Run them before pushing.
+
+## Adding a feature
+
+1. **Migration**: `supabase/migrations/<timestamp>_<feature>.sql`. Every table gets
+   `household_id uuid not null references households on delete cascade`, RLS
+   enabled, a policy `using (public.is_member(household_id)) with check (...)`,
+   and explicit `grant ... to authenticated` (new Supabase projects do not
+   auto-grant). Add checks to `supabase/tests/db_test.sql`.
+2. **Types**: add the row interface to `web/src/lib/db-types.ts`.
+3. **Folder** `web/src/features/<feature>/`:
+   - `api.ts`: plain async functions over `supabase` + `unwrap()`.
+   - `hooks.ts`: TanStack Query hooks, with a `<feature>Keys` object for query keys.
+   - `lib/*.ts`: pure logic, with a `*.test.ts` next to it.
+   - `<Feature>Page.tsx`, optional `Widget.tsx` (dashboard card), `components/`.
+   - `index.ts`: exports a `FeatureDefinition` (`app/types.ts`): id, title,
+     lucide icon, path, routes (lazy page), `nav` placement, optional Widget.
+4. **Register** it in `web/src/app/features.ts`. Nav, routes and dashboard
+   pick it up from there; `app/features.test.ts` checks ids and paths are unique.
+5. **Insights** (optional): add a rule file in `features/insights/rules/` and
+   list it in `rules/index.ts`. Rules are pure `(InsightData) => Insight[]`.
+
+Features may import another feature's `api.ts`, `hooks.ts` or `lib/`, never
+its components.
+
+## Conventions
+
+- Money: numbers in shekels at the edges, integer agorot inside calculations
+  (`toAgorot`/`fromAgorot`). Format with `formatILS`. Splits must sum exactly;
+  the rounding remainder goes to the payer (same rule in `split.ts` and SQL
+  `default_shares`).
+- Dates: ISO calendar days (`'2026-10-17'`) in local time, via `lib/dates.ts`.
+- UI text is Hebrew and gender-neutral (avoid "עשה/תה"; rephrase instead).
+  Use logical CSS (`ms-`, `pe-`, `start`), never left/right, so RTL works.
+  Wrap numbers mixed into Hebrew text in `<span className="num">` (LTR isolate).
+- Charts: single-hue `bg-viz` (`--viz-mark`, validated for light and dark).
+  No categorical rainbows; label values directly.
+- Mutations that the partner should see live: `useRealtimeInvalidate(table, ...)`
+  (one shared channel per table) and add the table to the `supabase_realtime`
+  publication in its migration.
+- Server-side multi-row writes go through an RPC (`complete_trip`,
+  `save_expense`, `pay_bill`) so they are atomic and validated.
+
+## Price data
+
+`ingest/` uses il-supermarket-scraper (non-commercial license, Sefi Erlich,
+https://github.com/OpenIsraeliSupermarkets/israeli-supermarket-scarpers) to
+download Stores/PriceFull files, parses them itself (`parse.py`, tolerant of
+each chain's XML dialect), and replaces each store's prices in one COPY-based
+transaction. Chain-internal item codes (produce etc.) are stored as
+`<chain_id>:<code>` so they never match across chains. Some chain sites block
+non-Israeli IPs; docs/setup.md explains running ingest from home for those.

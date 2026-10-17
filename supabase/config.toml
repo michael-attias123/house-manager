@@ -1,0 +1,14 @@
+# Minimal Supabase CLI config, enough for `supabase start` (local dev) and
+# `supabase db push` (.github/workflows/db-migrate.yml).
+project_id = "house-manager"
+
+[api]
+schemas = ["public"]
+
+[auth]
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173"]
+
+[auth.email]
+enable_signup = true
+otp_length = 6
