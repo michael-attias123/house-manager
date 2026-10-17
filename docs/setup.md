@@ -139,3 +139,16 @@ pnpm dev                     # http://localhost:5173
 הבדיקות:
 - `pnpm test`: בדיקות הלוגיקה.
 - `./scripts/db-test.sh`: הרצת ה-migrations ובדיקות ההרשאות על Postgres זמני.
+
+---
+
+## פתרון תקלות
+
+- **"Could not find the table … in the schema cache"**: ה-migrations עוד לא רצו. מריצים את **Database migrations** בלשונית Actions.
+- **לבחור דרך אחת להריץ migrations.** אם הרצתם קבצים ידנית ב-SQL Editor, הפעולה ב-GitHub תנסה להריץ אותם שוב ותיכשל. ממשיכים באותה דרך שבה התחלתם.
+- **הוראות קבע לא נרשמות לבד**: הרישום האוטומטי משתמש ב-`pg_cron`. אם ההפעלה שלו ב-migration לא הצליחה, מפעילים ב-Supabase את **Integrations → Cron**, ואז מריצים ב-SQL Editor:
+  ```sql
+  select cron.schedule('auto-pay-due-bills', '15 4 * * *', 'select public.auto_pay_due_bills()');
+  ```
+- **הקוד לא מגיע במייל**: בודקים בתיקיית הספאם. אם זה לא שם, בודקים ב-**Authentication → Logs** אם נחסמתם ממגבלת המיילים, ומחכים שעה.
+- **השוואת הסלים ריקה**: בודקים ביומן של **Supermarket prices** אילו רשתות נכשלו. אם חלקן נחסמו, עוברים לסעיף 5.
