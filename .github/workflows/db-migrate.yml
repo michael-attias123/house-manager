@@ -1,0 +1,30 @@
+name: Database migrations
+
+# Applies supabase/migrations to the Supabase project when they change on main.
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/migrations/**']
+  workflow_dispatch:
+
+concurrency:
+  group: db-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - name: Skip until Supabase is connected
+        if: env.SUPABASE_DB_URL == ''
+        run: echo "::notice::Add the SUPABASE_DB_URL secret to apply migrations (see docs/setup.md)."
+      - uses: actions/checkout@v5
+        if: env.SUPABASE_DB_URL != ''
+      - uses: supabase/setup-cli@v1
+        if: env.SUPABASE_DB_URL != ''
+        with:
+          version: latest
+      - if: env.SUPABASE_DB_URL != ''
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --include-all --yes

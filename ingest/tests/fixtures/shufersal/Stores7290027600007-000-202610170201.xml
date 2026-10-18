@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+    <CHAINID>7290027600007</CHAINID>
+    <LASTUPDATEDATE>2026-10-17</LASTUPDATEDATE>
+    <STORES>
+      <STORE>
+        <SUBCHAINID>1</SUBCHAINID>
+        <STOREID>413</STOREID>
+        <BIKORETNO>9</BIKORETNO>
+        <STORETYPE>1</STORETYPE>
+        <CHAINNAME>שופרסל</CHAINNAME>
+        <SUBCHAINNAME>שופרסל דיל</SUBCHAINNAME>
+        <STORENAME>שופרסל דיל באר שבע עמק שרה</STORENAME>
+        <ADDRESS>דרך חברון 21</ADDRESS>
+        <CITY>באר שבע</CITY>
+        <ZIPCODE>8400000</ZIPCODE>
+      </STORE>
+      <STORE>
+        <SUBCHAINID>2</SUBCHAINID>
+        <STOREID>012</STOREID>
+        <STORENAME>שופרסל שלי רמת אביב</STORENAME>
+        <ADDRESS>איינשטיין 40</ADDRESS>
+        <CITY>תל אביב</CITY>
+      </STORE>
+      <STORE>
+        <SUBCHAINID>3</SUBCHAINID>
+        <STOREID>277</STOREID>
+        <STORENAME>שופרסל אקספרס רמות</STORENAME>
+        <ADDRESS>מבצע משה 3</ADDRESS>
+        <CITY>באר-שבע</CITY>
+      </STORE>
+    </STORES>
+  </asx:values>
+</asx:abap>

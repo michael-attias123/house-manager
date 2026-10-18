@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Root>
+  <ChainId>7290058140886</ChainId>
+  <StoreId>039</StoreId>
+  <Items Count="3">
+    <Item>
+      <PriceUpdateDate>2026-10-16T22:15:00</PriceUpdateDate>
+      <ItemCode>7290000000001</ItemCode>
+      <ItemType>1</ItemType>
+      <ItemName>חלב תנובה 3% 1 ל</ItemName>
+      <ManufacturerName>תנובה</ManufacturerName>
+      <Quantity>1</Quantity>
+      <UnitOfMeasure>ליטר</UnitOfMeasure>
+      <bIsWeighted>false</bIsWeighted>
+      <ItemPrice>6.20</ItemPrice>
+      <UnitOfMeasurePrice>6.20</UnitOfMeasurePrice>
+    </Item>
+    <Item>
+      <ItemCode>100</ItemCode>
+      <ItemType>0</ItemType>
+      <ItemName>עגבניות</ItemName>
+      <bIsWeighted>1</bIsWeighted>
+      <ItemPrice>4.90</ItemPrice>
+    </Item>
+    <Item>
+      <ItemCode>2000000012345</ItemCode>
+      <ItemType>1</ItemType>
+      <ItemName>גבינה צהובה במשקל</ItemName>
+      <ItemPrice>49.90</ItemPrice>
+    </Item>
+  </Items>
+</Root>
