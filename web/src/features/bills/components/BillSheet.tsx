@@ -4,6 +4,7 @@ import type { Bill, BillFrequency, BillPayment } from '@/lib/db-types'
 import { addDays, formatDay, todayISO } from '@/lib/dates'
 import { formatILS, parseAmount } from '@/lib/money'
 import { Button } from '@/components/ui/Button'
+import { ConfirmButton } from '@/components/ui/ConfirmButton'
 import { Chip } from '@/components/ui/Chip'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { ErrorBox } from '@/components/ui/Feedback'
@@ -85,16 +86,17 @@ export function BillSheet({ bill, payments, onClose }: BillSheetProps) {
             שמירה
           </Button>
           {bill && (
-            <Button
+            <ConfirmButton
               variant="ghost"
-              onClick={async () => {
-                if (!confirm('להעביר את החשבון לארכיון? ההיסטוריה נשמרת.')) return
+              aria-label="העברה לארכיון (ההיסטוריה נשמרת)"
+              confirmLabel="לארכיון?"
+              onConfirm={async () => {
                 await archive.mutateAsync(bill.id)
                 onClose()
               }}
             >
               <Archive size={18} />
-            </Button>
+            </ConfirmButton>
           )}
         </div>
       }

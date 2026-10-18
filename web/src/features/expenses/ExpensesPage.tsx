@@ -3,7 +3,7 @@ import { ArrowLeftRight, Plus, Trash2 } from 'lucide-react'
 import type { Settlement } from '@/lib/db-types'
 import { formatDay, formatMonth, monthKey, todayISO } from '@/lib/dates'
 import { formatILS } from '@/lib/money'
-import { Button } from '@/components/ui/Button'
+import { ConfirmButton } from '@/components/ui/ConfirmButton'
 import { Card } from '@/components/ui/Card'
 import { Chip } from '@/components/ui/Chip'
 import { EmptyState, ErrorBox, Loading } from '@/components/ui/Feedback'
@@ -120,14 +120,15 @@ export function ExpensesPage() {
                     </p>
                   </div>
                   <span className="num font-medium text-emerald-600">{formatILS(Number(row.settlement.amount))}</span>
-                  <Button
+                  <ConfirmButton
                     variant="ghost"
-                    size="icon"
+                    size="sm"
                     aria-label="מחיקת העברה"
-                    onClick={() => confirm('למחוק את ההעברה?') && deleteSettlement.mutate(row.settlement)}
+                    confirmLabel="למחוק?"
+                    onConfirm={() => deleteSettlement.mutate(row.settlement)}
                   >
                     <Trash2 size={16} />
-                  </Button>
+                  </ConfirmButton>
                 </li>
               ),
             )}

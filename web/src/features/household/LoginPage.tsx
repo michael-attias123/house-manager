@@ -54,7 +54,7 @@ export function LoginPage() {
   return (
     <div className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-8 px-6">
       <div className="space-y-2 text-center">
-        <img src="/pwa-192.png" alt="" className="mx-auto h-20 w-20 rounded-3xl" />
+        <img src={`${import.meta.env.BASE_URL}pwa-192.png`} alt="" className="mx-auto h-20 w-20 rounded-3xl" />
         <h1 className="text-2xl font-bold">ניהול הבית</h1>
         <p className="text-ink-2">קניות, התחשבנות, חשבונות ומטלות — במקום אחד, לשניכם.</p>
       </div>
