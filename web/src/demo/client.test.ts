@@ -1,5 +1,5 @@
 import { demoClient } from './client'
-import { HOUSEHOLD, MICHAEL, NOA } from './seed'
+import { HOUSEHOLD, MICHAEL, YAHALI } from './seed'
 import { db } from './store'
 
 const list = () => db.shopping_lists[0].id
@@ -48,7 +48,7 @@ describe('demo client', () => {
       p_description: 'פיצה',
       p_amount: 120,
       p_paid_by: MICHAEL,
-      p_shares: { [MICHAEL]: 72, [NOA]: 48 },
+      p_shares: { [MICHAEL]: 72, [YAHALI]: 48 },
     })
     expect(saved.error).toBeNull()
     expect(await balance()).toBeCloseTo(start + 48)

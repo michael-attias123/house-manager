@@ -4,13 +4,13 @@ import { addDays, addMonths, startOfMonth, todayISO } from '@/lib/dates'
 import type { Db, Row } from './store'
 
 export const MICHAEL = '11111111-1111-4111-8111-111111111111'
-export const NOA = '22222222-2222-4222-8222-222222222222'
+export const YAHALI = '22222222-2222-4222-8222-222222222222'
 export const HOUSEHOLD = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const LIST = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
 export const DEMO_USERS = [
   { id: MICHAEL, email: 'michael@demo', name: 'מיכאל' },
-  { id: NOA, email: 'noa@demo', name: 'נועה' },
+  { id: YAHALI, email: 'yahali@demo', name: 'יהלי' },
 ]
 
 let counter = 0
@@ -31,7 +31,7 @@ export function createSeed(now: Date = new Date()): Db {
     households: [{ id: HOUSEHOLD, name: 'הבית שלנו', invite_code: 'K7M2QX', created_at: at(daysAgo(200)) }],
     household_members: [
       { household_id: HOUSEHOLD, user_id: MICHAEL, display_name: 'מיכאל', color: '#0ea5e9', default_share_pct: 50, joined_at: at(daysAgo(200)) },
-      { household_id: HOUSEHOLD, user_id: NOA, display_name: 'נועה', color: '#f43f5e', default_share_pct: 50, joined_at: at(daysAgo(199)) },
+      { household_id: HOUSEHOLD, user_id: YAHALI, display_name: 'יהלי', color: '#f43f5e', default_share_pct: 50, joined_at: at(daysAgo(199)) },
     ],
     shopping_lists: [{ id: LIST, household_id: HOUSEHOLD, name: 'קניות', is_default: true, created_at: at(daysAgo(200)) }],
     list_items: [],
@@ -62,14 +62,14 @@ export function createSeed(now: Date = new Date()): Db {
   // Shopping list
   const items: [string, number, string, string, boolean, string | null][] = [
     ['חלב', 2, 'dairy', MICHAEL, false, '7290000000001'],
-    ['קוטג׳', 1, 'dairy', NOA, false, null],
-    ['עגבניות', 1, 'produce', NOA, false, null],
+    ['קוטג׳', 1, 'dairy', YAHALI, false, null],
+    ['עגבניות', 1, 'produce', YAHALI, false, null],
     ['מלפפונים', 1, 'produce', MICHAEL, false, null],
     ['לחם אחיד', 1, 'bakery', MICHAEL, false, '7290000000020'],
-    ['חזה עוף', 1, 'meat', NOA, false, null],
+    ['חזה עוף', 1, 'meat', YAHALI, false, null],
     ['סבון כלים', 1, 'cleaning', MICHAEL, false, null],
-    ['פסטה', 3, 'pantry', NOA, false, null],
-    ['ביצים', 1, 'dairy', NOA, true, null],
+    ['פסטה', 3, 'pantry', YAHALI, false, null],
+    ['ביצים', 1, 'dairy', YAHALI, true, null],
   ]
   items.forEach(([name, quantity, category, by, checked, barcode], i) => {
     const created = new Date(now.getTime() - (items.length - i) * 60_000).toISOString()
@@ -100,7 +100,7 @@ export function createSeed(now: Date = new Date()): Db {
   const addExpense = (description: string, amount: number, paidBy: string, category: string, date: string, source = 'manual') => {
     const expenseId = id()
     const half = Math.floor(amount * 50) / 100
-    const other = paidBy === MICHAEL ? NOA : MICHAEL
+    const other = paidBy === MICHAEL ? YAHALI : MICHAEL
     db.expenses.push({
       id: expenseId, household_id: HOUSEHOLD, description, amount, paid_by: paidBy, category, expense_date: date,
       split_type: 'equal', note: null, source, source_id: null, created_by: paidBy, created_at: at(date), updated_at: at(date),
@@ -114,25 +114,25 @@ export function createSeed(now: Date = new Date()): Db {
     const start = addMonths(monthStart, -m)
     addExpense('שכירות', 4800, MICHAEL, 'rent', addDays(start, 0), 'bill')
     addExpense('קניות ברמי לוי', 480 + m * 23, MICHAEL, 'groceries', addDays(start, 2), 'trip')
-    addExpense('דלק', 280, NOA, 'transport', addDays(start, 4))
-    addExpense('מסעדה', 210 + m * 11, NOA, 'eating_out', addDays(start, 9))
-    addExpense('קניות בשופרסל', 390 + m * 17, NOA, 'groceries', addDays(start, 12), 'trip')
-    addExpense('ארנונה', 600 + (m % 2) * 25, NOA, 'bills', addDays(start, 15), 'bill')
+    addExpense('דלק', 280, YAHALI, 'transport', addDays(start, 4))
+    addExpense('מסעדה', 210 + m * 11, YAHALI, 'eating_out', addDays(start, 9))
+    addExpense('קניות בשופרסל', 390 + m * 17, YAHALI, 'groceries', addDays(start, 12), 'trip')
+    addExpense('ארנונה', 600 + (m % 2) * 25, YAHALI, 'bills', addDays(start, 15), 'bill')
     db.settlements.push({
-      id: id(), household_id: HOUSEHOLD, from_user: NOA, to_user: MICHAEL, amount: 1900, settled_on: addDays(start, 20),
-      note: 'ביט', created_by: NOA, created_at: at(addDays(start, 20)),
+      id: id(), household_id: HOUSEHOLD, from_user: YAHALI, to_user: MICHAEL, amount: 1900, settled_on: addDays(start, 20),
+      note: 'ביט', created_by: YAHALI, created_at: at(addDays(start, 20)),
     })
   }
   addExpense('שכירות', 4800, MICHAEL, 'rent', thisMonth(1), 'bill')
   addExpense('קניות ברמי לוי', 612.4, MICHAEL, 'groceries', thisMonth(3), 'trip')
-  addExpense('סושי', 286, NOA, 'eating_out', thisMonth(5))
+  addExpense('סושי', 286, YAHALI, 'eating_out', thisMonth(5))
   addExpense('פיצה', 118, MICHAEL, 'eating_out', thisMonth(7))
-  addExpense('בורגר', 236, NOA, 'eating_out', thisMonth(9))
-  addExpense('מתנה ליום הולדת', 250, NOA, 'gifts', daysAgo(1))
-  addExpense('קניות בשופרסל', 344.9, NOA, 'groceries', daysAgo(2), 'trip')
+  addExpense('בורגר', 236, YAHALI, 'eating_out', thisMonth(9))
+  addExpense('מתנה ליום הולדת', 250, YAHALI, 'gifts', daysAgo(1))
+  addExpense('קניות בשופרסל', 344.9, YAHALI, 'groceries', daysAgo(2), 'trip')
   db.settlements.push({
-    id: id(), household_id: HOUSEHOLD, from_user: NOA, to_user: MICHAEL, amount: 2000, settled_on: thisMonth(2),
-    note: 'ביט', created_by: NOA, created_at: at(thisMonth(2)),
+    id: id(), household_id: HOUSEHOLD, from_user: YAHALI, to_user: MICHAEL, amount: 2000, settled_on: thisMonth(2),
+    note: 'ביט', created_by: YAHALI, created_at: at(thisMonth(2)),
   })
 
   // Bills
@@ -141,18 +141,18 @@ export function createSeed(now: Date = new Date()): Db {
     next_due_date: due, paid_by_default: paidBy, auto_create: auto, active: true, notes: null,
     created_at: at(daysAgo(200)), updated_at: at(daysAgo(200)),
   })
-  const electricity = bill('חשמל', '💡', 'bills', 'variable', 450, 'bimonthly', addDays(today, 4), NOA)
+  const electricity = bill('חשמל', '💡', 'bills', 'variable', 450, 'bimonthly', addDays(today, 4), YAHALI)
   db.bills.push(
     bill('שכירות', '🏠', 'rent', 'fixed', 4800, 'monthly', addMonths(monthStart, 1), MICHAEL, true),
-    bill('ארנונה', '🏛️', 'bills', 'variable', 620, 'bimonthly', daysAgo(2), NOA),
+    bill('ארנונה', '🏛️', 'bills', 'variable', 620, 'bimonthly', daysAgo(2), YAHALI),
     electricity,
-    bill('אינטרנט', '🌐', 'bills', 'fixed', 99, 'monthly', addDays(today, 9), NOA),
+    bill('אינטרנט', '🌐', 'bills', 'fixed', 99, 'monthly', addDays(today, 9), YAHALI),
     bill('נטפליקס', '🎬', 'fun', 'fixed', 69.9, 'monthly', addDays(today, 21), MICHAEL),
   )
   for (const [ago, amount] of [[60, 610], [120, 420], [180, 395], [240, 430]] as const) {
     db.bill_payments.push({
       id: id(), bill_id: electricity.id, household_id: HOUSEHOLD, due_date: daysAgo(ago), amount,
-      paid_on: daysAgo(ago), paid_by: NOA, expense_id: null, created_at: at(daysAgo(ago)),
+      paid_on: daysAgo(ago), paid_by: YAHALI, expense_id: null, created_at: at(daysAgo(ago)),
     })
   }
 
@@ -164,14 +164,14 @@ export function createSeed(now: Date = new Date()): Db {
   const dishwasher = chore('לרוקן מדיח', '🍽️', 'daily', {}, 'anyone', null, today)
   db.chores.push(
     chore('להוציא זבל', '🗑️', 'every_n_days', { interval_days: 2 }, 'rotate', MICHAEL, today),
-    chore('כביסה', '🧺', 'weekly', { weekdays: [0, 3] }, 'rotate', NOA, daysAgo(1)),
+    chore('כביסה', '🧺', 'weekly', { weekdays: [0, 3] }, 'rotate', YAHALI, daysAgo(1)),
     dishwasher,
     chore('שטיפת רצפה', '🧹', 'weekly', { weekdays: [5] }, 'fixed', MICHAEL, addDays(today, 3)),
-    chore('ניקוי פילטר מזגן', '❄️', 'every_n_days', { interval_days: 60 }, 'fixed', NOA, addDays(today, 25)),
+    chore('ניקוי פילטר מזגן', '❄️', 'every_n_days', { interval_days: 60 }, 'fixed', YAHALI, addDays(today, 25)),
   )
   for (let g = 1; g <= 12; g++) {
     db.chore_completions.push({
-      id: id(), chore_id: dishwasher.id, household_id: HOUSEHOLD, done_by: g % 4 === 0 ? MICHAEL : NOA,
+      id: id(), chore_id: dishwasher.id, household_id: HOUSEHOLD, done_by: g % 4 === 0 ? MICHAEL : YAHALI,
       done_on: daysAgo(g), created_at: at(daysAgo(g)),
     })
   }

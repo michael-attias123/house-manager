@@ -8,7 +8,7 @@ import { DEMO_USERS, MICHAEL, createSeed } from './seed'
 export type Row = Record<string, any>
 export type Db = Record<string, Row[]>
 
-const DB_KEY = 'house-manager-demo-db-v1'
+const DB_KEY = 'house-manager-demo-db-v2'
 const USER_KEY = 'house-manager-demo-user'
 const CACHE_KEY = 'house-manager-cache'
 
