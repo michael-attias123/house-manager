@@ -9,9 +9,13 @@ on:
         description: 'Item names, comma separated (empty = the list below)'
         required: false
         default: ''
+      dump:
+        description: 'Also print a gzip+base64 CSV slice of the catalogue (for local testing)'
+        type: boolean
+        default: false
   # Also whenever the probe itself changes, so it can be tried from a branch.
   push:
-    paths: ['scripts/price-probe.sql', '.github/workflows/price-probe.yml']
+    paths: ['scripts/price-probe.sql', 'scripts/price-dump.sql', '.github/workflows/price-probe.yml']
 
 jobs:
   probe:
@@ -20,6 +24,7 @@ jobs:
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
       TERMS: ${{ inputs.terms }}
+      DUMP: ${{ inputs.dump || github.event_name == 'push' }}
       DEFAULT_TERMS: >-
         ביצים,חלב,לחם,עגבניות,מלפפונים,בצל,תפוחי אדמה,גזר,בננה,תפוחים,קוטג,גבינה צהובה,
         גבינה לבנה,שמנת,יוגורט,חמאה,אורז,פסטה,סוכר,קמח,שמן,מלח,קפה,תה,טחינה,חומוס,טונה,
@@ -36,3 +41,9 @@ jobs:
           url="$(printf %s "$SUPABASE_DB_URL" | tr -d '\r\n')"
           terms="$(printf %s "${TERMS:-$DEFAULT_TERMS}" | tr -d '\n' | sed 's/, */,/g')"
           psql "$url" -v terms="$terms" -f scripts/price-probe.sql
+          if [[ "$DUMP" == "true" ]]; then
+            echo "---DUMP-BEGIN---"
+            psql "$url" -q -X -v terms="$terms" -f scripts/price-dump.sql | gzip -9 | base64 -w 0
+            echo
+            echo "---DUMP-END---"
+          fi
