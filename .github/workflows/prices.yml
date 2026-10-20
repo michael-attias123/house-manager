@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Skip until Supabase is connected
         if: env.SUPABASE_DB_URL == ''
+        # Runs before checkout, so not in the ingest/ default directory.
+        working-directory: .
         run: echo "::notice::Add the SUPABASE_DB_URL secret to load prices (see docs/setup.md)."
       - uses: actions/checkout@v5
         if: env.SUPABASE_DB_URL != ''

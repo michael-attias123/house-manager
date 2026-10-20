@@ -65,7 +65,9 @@ def cmd_discover(config: Config, chains: list[ChainConfig], work: Path, from_dir
 
 
 def cmd_run(config: Config, chains: list[ChainConfig], work: Path, from_dir: Path | None, dry_run: bool) -> int:
-    db_url = os.environ.get("SUPABASE_DB_URL") or os.environ.get("DATABASE_URL")
+    # Strip: a secret pasted with a trailing newline otherwise becomes part of
+    # the database name ("postgres\n does not exist").
+    db_url = (os.environ.get("SUPABASE_DB_URL") or os.environ.get("DATABASE_URL") or "").strip()
     if not dry_run and not db_url:
         print("SUPABASE_DB_URL is not set; nothing to do. See docs/setup.md.", file=sys.stderr)
         return 0
