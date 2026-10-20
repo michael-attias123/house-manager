@@ -34,7 +34,19 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
-          navigateFallback: '/index.html',
+          // The app shell is precached and served as '/', never '/index.html':
+          // Cloudflare Pages redirects /index.html → /, and a navigation answered
+          // with a redirected response fails ("Response served by service worker
+          // has redirections" in Safari). That happens whenever the precache is
+          // missing, e.g. after Safari clears a site's storage, and the worker
+          // falls back to the network.
+          navigateFallback: '/',
+          manifestTransforms: [
+            (entries) => ({
+              manifest: entries.map((e) => (e.url === 'index.html' ? { ...e, url: '/' } : e)),
+              warnings: [],
+            }),
+          ],
           globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         },
       }),
