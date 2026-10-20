@@ -384,4 +384,72 @@ end;
 $$;
 reset role;
 
+-- Sign-up allowlist (allowed_emails) --------------------------------------------
+-- Supabase Auth inserts users as supabase_auth_admin, which has no access to
+-- public.allowed_emails: the security definer trigger must work regardless.
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'supabase_auth_admin') then
+    create role supabase_auth_admin nologin;
+  end if;
+end;
+$$;
+grant usage on schema auth to supabase_auth_admin;
+grant insert on auth.users to supabase_auth_admin;
+
+-- An empty list lets everyone in.
+set role supabase_auth_admin;
+insert into auth.users (email) values ('anyone@allowlist.example.com');
+reset role;
+
+insert into public.allowed_emails (email, note) values
+  ('allowed@allowlist.example.com', 'test'),
+  ('mixed@allowlist.example.com', null);
+
+set role supabase_auth_admin;
+do $$
+begin
+  begin
+    insert into auth.users (email) values ('blocked@allowlist.example.com');
+    raise exception 'unlisted email accepted';
+  exception when others then
+    if sqlerrm not like 'email not allowed%' then raise; end if;
+  end;
+  insert into auth.users (email) values ('allowed@allowlist.example.com');
+  -- Google may return the address in any case.
+  insert into auth.users (email) values ('Mixed@AllowList.Example.COM');
+end;
+$$;
+reset role;
+
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-00000000000a');
+do $$
+begin
+  begin
+    perform 1 from public.allowed_emails;
+    raise exception 'clients can read allowed_emails';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+reset role;
+
+do $$
+begin
+  assert not exists (select 1 from auth.users where email = 'blocked@allowlist.example.com'),
+    'blocked user was created';
+  assert (select count(*) from auth.users where email ilike '%@allowlist.example.com') = 3,
+    'allowed users missing';
+  begin
+    insert into public.allowed_emails (email) values ('Upper@allowlist.example.com');
+    raise exception 'unnormalized address accepted';
+  exception when check_violation then null;
+  end;
+end;
+$$;
+
+delete from public.allowed_emails;
+delete from auth.users where email ilike '%@allowlist.example.com';
+
 \echo 'All database tests passed'

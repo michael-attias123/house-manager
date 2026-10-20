@@ -75,6 +75,9 @@ its components.
 - No `alert`/`confirm`/`prompt` (blocked in some embeds); use `ConfirmButton`.
 - Server-side multi-row writes go through an RPC (`complete_trip`,
   `save_expense`, `pay_bill`) so they are atomic and validated.
+- Sign-up is limited by `public.allowed_emails` (a trigger on `auth.users`;
+  an empty list lets everyone in). The owner adds addresses in the SQL
+  editor; never commit real ones.
 
 ## Price data
 

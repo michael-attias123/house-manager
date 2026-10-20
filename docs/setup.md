@@ -36,7 +36,7 @@
    - **App name:** `ניהול הבית`, ומייל לתמיכה (המייל שלך).
    - **Audience:** `External`.
    - תחת **Test users** מוסיפים את המייל שלך ואת המייל של יהלי.
-   > כל עוד האפליקציה במצב "Testing", רק המיילים ברשימה הזו יכולים להיכנס. לשניכם זה מושלם, ואין צורך באישור מ-Google.
+   > כל עוד האפליקציה במצב "Testing", רק המיילים ברשימה הזו יכולים להיכנס. לשניכם זה מושלם, ואין צורך באישור מ-Google. ההגבלה הזו נעלמת אם לוחצים **Publish app**, ולכן יש גם הגבלה במסד הנתונים (סוף שלב 3).
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
    - **Application type:** `Web application`.
    - **Authorized redirect URIs:** מוסיפים `https://<ref>.supabase.co/auth/v1/callback`. ה-`<ref>` הוא מזהה הפרויקט שמופיע ב-Project URL משלב 3 למעלה.
@@ -98,6 +98,23 @@
 2. **Supermarket prices → Run workflow**. הפעולה טוענת את המחירים הראשונים. מכאן היא רצה כל בוקר ב-06:17.
 
 > אפשרות בלי GitHub: ב-Supabase פותחים את **SQL Editor** ומריצים את הקבצים ב-`supabase/migrations` לפי הסדר.
+
+### מי יכול להירשם
+
+בלי הגבלה, כל חשבון Google יכול ליצור משתמש באפליקציה. הנתונים שלכם מוגנים בכל מקרה, אבל עדיף לסגור את ההרשמה לכתובות שלכם. אחרי שה-migrations רצו, פותחים ב-Supabase את **SQL Editor** ומריצים, עם הכתובות שלכם באותיות קטנות:
+
+```sql
+insert into public.allowed_emails (email) values ('you@gmail.com'), ('partner@gmail.com');
+```
+
+מרגע שיש ברשימה כתובת אחת לפחות, רק הכתובות שבה יכולות ליצור משתמש. כתובת אחרת תקבל במסך הכניסה את ההודעה "הכתובת הזו לא מורשית להיכנס לאפליקציה".
+
+- **הצגת הרשימה:** `select * from public.allowed_emails;`
+- **הסרת כתובת:** `delete from public.allowed_emails where email = 'old@gmail.com';`. הבדיקה נעשית רק כשנוצר משתמש חדש, אז אם כבר נוצר משתמש לכתובת הזו, מוחקים גם אותו (ראו בהמשך).
+- **רשימה ריקה** פותחת את ההרשמה לכולם. כך פרויקט חדש לא ננעל לפני שמוסיפים כתובות.
+- **משתמשים שנוצרו לפני הרשימה** נשארים, ואת המיותרים מוחקים ב-Supabase, ב-**Authentication → Users**.
+
+> ה-**Test users** של Google מגבילים רק כל עוד ה-**Publishing status** של האפליקציה הוא `Testing` (ב-**Google Auth Platform → Audience**). אחרי Publish כל חשבון Google יכול להיכנס, ולכן ההגבלה נעשית כאן, במסד הנתונים.
 
 ---
 
@@ -164,6 +181,7 @@ pnpm dev                     # http://localhost:5173
 - **Google מציג שגיאה בכניסה**:
   - `redirect_uri_mismatch`: הכתובת ב-Authorized redirect URIs לא זהה ל-`https://<ref>.supabase.co/auth/v1/callback`.
   - "Access blocked" / "app has not completed verification": המייל לא נמצא ברשימת Test users.
+  - "הכתובת הזו לא מורשית להיכנס לאפליקציה": הכתובת לא נמצאת ב-`public.allowed_emails`. מוסיפים אותה לפי "מי יכול להירשם" בשלב 3, באותיות קטנות, ומנסים שוב.
   - חוזרים לאתר אבל לא מחוברים: כתובת האתר חסרה ב-Redirect URLs ב-Supabase.
   - אחרי Google מגיעים לאתר אחר: ה-Site URL או ה-Redirect URLs ב-Supabase לא תואמים לכתובת שלכם. מתקנים לפי שלב 1, ואז נכנסים לאפליקציה ולוחצים **יציאה מהחשבון** בהגדרות. היציאה מבטלת את כל החיבורים הקיימים, כולל זה שנשלח לאתר האחר.
 - **באייפון, האפליקציה המותקנת לא נשארת מחוברת אחרי Google**: נכנסים פעם אחת דרך ספארי, ואז מוסיפים שוב למסך הבית. אם זה עדיין לא עובד, אפשר להוסיף חזרה כניסה עם קוד במייל.

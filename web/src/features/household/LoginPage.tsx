@@ -1,11 +1,23 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { ErrorBox } from '@/components/ui/Feedback'
+import { readAuthRedirectError } from './lib/authRedirect'
 
 export function LoginPage() {
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<unknown>(null)
+  // A refused sign-in returns here with the error in the URL.
+  const [redirect] = useState(() => readAuthRedirectError(window.location.href))
+  const [error, setError] = useState<unknown>(
+    redirect &&
+      (redirect.notAllowed
+        ? 'הכתובת הזו לא מורשית להיכנס לאפליקציה. אפשר לבקש מבעלי הבית להוסיף אותה.'
+        : `הכניסה לא הצליחה: ${redirect.description}`),
+  )
+
+  useEffect(() => {
+    if (redirect) window.history.replaceState(window.history.state, '', redirect.cleanUrl)
+  }, [redirect])
 
   async function signInWithGoogle() {
     setBusy(true)
