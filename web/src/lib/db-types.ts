@@ -186,19 +186,30 @@ export interface Store {
   last_ingested_at: string | null
 }
 
-export interface BasketMatch {
-  store_id: number
+/** Normalized pack size unit (products.pack_unit): grams, ml, units, meters. */
+export type PackUnit = 'g' | 'ml' | 'u' | 'm'
+
+/** A row of match_candidates(): the cheapest product per item, store and pack size. */
+export interface MatchCandidate {
   item_id: string
+  /** 0: the linked barcode, 1: name starts with the item, 2: has its words, 3: similar. */
+  tier: number
+  store_id: number
   barcode: string
   product_name: string
   price: number
-  exact: boolean
+  pack_unit: PackUnit | null
+  pack_qty: number | null
+  is_weighted: boolean
 }
 
 export interface ProductSearchResult {
   barcode: string
   name: string
   manufacturer: string | null
+  pack_unit: PackUnit | null
+  pack_qty: number | null
+  is_weighted: boolean
   min_price: number | null
   max_price: number | null
   store_count: number

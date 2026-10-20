@@ -12,7 +12,7 @@ describe('demo client', () => {
       .eq('list_id', list())
       .order('created_at', { ascending: false })
       .limit(2)
-    expect((data as { name: string }[]).map((i) => i.name)).toEqual(['ביצים', 'פסטה'])
+    expect((data as { name: string }[]).map((i) => i.name)).toEqual(['במבה', 'ביצים'])
   })
 
   it('embeds child and parent rows', async () => {
@@ -74,14 +74,19 @@ describe('demo client', () => {
     expect(shares.sort()).toEqual([166.66, 166.67])
   })
 
-  it('matches the basket across stores', async () => {
-    db.list_items.push({
-      id: 'milk', list_id: list(), household_id: HOUSEHOLD, name: 'חלב', quantity: 1, barcode: '7290000000001', checked: false,
+  it('matches products by kind and pack, never the look-alikes', async () => {
+    const { data } = await demoClient.rpc('match_candidates', {
+      p_items: [
+        { id: 'milk', terms: ['חלב'], exclude: [], require: [], weighted: null, barcode: '7290000000001' },
+        { id: 'eggs', terms: ['ביצים'], exclude: ['סלט', 'קוצץ'], require: [], weighted: null, barcode: null },
+      ],
     })
-    const { data } = await demoClient.rpc('basket_matches', { p_list_id: list() })
-    const milk = (data as { item_id: string; store_id: number; price: number; exact: boolean }[]).filter((m) => m.item_id === 'milk')
-    expect(milk).toHaveLength(5)
-    expect(milk.every((m) => m.exact)).toBe(true)
-    expect(milk.find((m) => m.store_id === 3)?.price).toBe(6.1)
+    const rows = data as { item_id: string; tier: number; store_id: number; product_name: string; price: number }[]
+    const exactMilk = rows.filter((m) => m.item_id === 'milk' && m.tier === 0)
+    expect(exactMilk).toHaveLength(7)
+    expect(exactMilk.find((m) => m.store_id === 3)?.price).toBe(6.8)
+    const eggs = rows.filter((m) => m.item_id === 'eggs')
+    expect(eggs.length).toBeGreaterThan(0)
+    expect(eggs.some((m) => /סלט|קוצץ/.test(m.product_name))).toBe(false)
   })
 })

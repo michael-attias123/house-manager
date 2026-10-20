@@ -85,3 +85,12 @@ each chain's XML dialect), and replaces each store's prices in one COPY-based
 transaction. Chain-internal item codes (produce etc.) are stored as
 `<chain_id>:<code>` so they never match across chains. Some chain sites block
 non-Israeli IPs; docs/setup.md explains running ingest from home for those.
+
+Basket matching (`features/prices/lib/match.ts` + SQL `match_candidates`):
+products get a normalized name and pack size (`norm_name`, `product_pack`,
+generated columns). An item matches names that *start* with it before names
+that merely contain it, `lib/staples.ts` says what common items mean
+(terms, excluded words, standard pack, per kg), and each store contributes
+its cheapest product of the chosen pack. Check real data with the
+**Price probe** workflow (`scripts/price-probe.sql`; `dump` prints a CSV
+slice to load into a local database) before changing these rules.

@@ -164,11 +164,15 @@ reset role;
 insert into public.stores (chain_id, store_code, name, city) values
   ('rami_levy', '39', 'רמי לוי באר שבע', 'באר שבע'),
   ('shufersal', '413', 'שופרסל דיל באר שבע', 'באר שבע');
-insert into public.products (barcode, name, manufacturer) values
-  ('7290000000001', 'חלב תנובה 3% 1 ליטר', 'תנובה'),
-  ('7290000000002', 'לחם אחיד פרוס', 'אנג''ל'),
-  ('rami_levy:100', 'עגבניות', null),
-  ('shufersal:200', 'עגבניה שרי', null);
+insert into public.products (barcode, name, manufacturer, quantity, unit, is_weighted) values
+  ('7290000000001', 'חלב תנובה 3% 1 ליטר', 'תנובה', 1000, '100 מיליליטר', false),
+  ('7290000000002', 'לחם אחיד פרוס', 'אנג''ל', 750, '100 גרם', false),
+  ('7290000000003', 'ביצים אריזון 12 גדול', null, 1, 'יחידות', false),
+  ('7290000000004', 'סלט ביצים', null, 400, '100 גרם', false),
+  ('7290000000005', '12ביצים XL', null, 1, 'יחידות', false),
+  ('7290000000006', 'פסטה 4*125גר', null, null, null, false),
+  ('rami_levy:100', 'עגבניות', null, 1, 'קילוגרם', true),
+  ('shufersal:200', 'עגבניה שרי', null, 1, 'קילוגרם', true);
 insert into public.prices (store_id, barcode, price)
 select s.id, v.barcode, v.price
 from (values
@@ -176,7 +180,11 @@ from (values
   ('39', 'rami_levy:100', 4.90),
   ('413', '7290000000001', 6.90),
   ('413', '7290000000002', 7.40),
-  ('413', 'shufersal:200', 9.90)
+  ('413', 'shufersal:200', 9.90),
+  ('39', '7290000000003', 14.20),
+  ('39', '7290000000004', 9.90),
+  ('413', '7290000000005', 15.50),
+  ('413', '7290000000006', 8.00)
 ) v(store_code, barcode, price)
 join public.stores s on s.store_code = v.store_code;
 
@@ -199,18 +207,38 @@ insert into public.list_items (list_id, household_id, name, barcode) values
   (:'list_id', :'hid', 'חלב', '7290000000001');
 
 do $$
-declare
-  n int;
 begin
-  -- 2 unchecked items (עגבניות, חלב) x 2 stores.
-  select count(*) into n from public.basket_matches((select id from public.shopping_lists where is_default));
-  assert n = 4, format('expected 4 basket matches, got %s', n);
+  -- Pack sizes from the name first, then the fields; weighted = per kg.
+  assert (select (pack_unit, pack_qty) = ('u', 12) from public.products where barcode = '7290000000003'), 'egg carton pack';
+  assert (select (pack_unit, pack_qty) = ('ml', 1000) from public.products where barcode = '7290000000001'), 'milk pack';
+  assert (select (pack_unit, pack_qty) = ('g', 500) from public.products where barcode = '7290000000006'), 'multipack';
+  assert (select (pack_unit, pack_qty) = ('g', 1000) from public.products where barcode = 'rami_levy:100'), 'weighted pack';
+  assert (select name_head from public.products where barcode = '7290000000005') = 'ביצים xl', 'leading number kept';
+
+  -- "ביצים" matches products named for eggs, never the salad.
+  assert not exists (
+    select 1 from public.match_candidates('[{"id": "e", "terms": ["ביצים"]}]')
+    where product_name like 'סלט%' or tier <> 1
+  ), 'eggs matched egg salad';
+  assert (select count(*) from public.match_candidates('[{"id": "e", "terms": ["ביצים"]}]')) = 2, 'eggs in both stores';
+  assert (select count(*) from public.match_candidates('[{"id": "e", "terms": ["ביצים"], "exclude": ["xl"]}]')) = 1,
+    'exclude ignored';
+  assert (select count(*) from public.match_candidates('[{"id": "e", "terms": ["ביצים"], "require": ["גדול"]}]')) = 1,
+    'require ignored';
+  -- An item named for the salad does get it.
+  assert (select min(tier) from public.match_candidates('[{"id": "s", "terms": ["סלט"]}]')) = 1, 'salad tier';
+  assert (select count(*) from public.match_candidates('[{"id": "t", "terms": ["עגבניות"], "weighted": true}]')) = 1,
+    'weighted filter';
+  -- A linked barcode comes back as tier 0 in every store that sells it.
   assert (
-    select price from public.basket_matches((select id from public.shopping_lists where is_default)) m
-    join public.list_items li on li.id = m.item_id
+    select count(*) from public.match_candidates('[{"id": "m", "terms": ["חלב"], "barcode": "7290000000001"}]')
+    where tier = 0
+  ) = 2, 'linked barcode rows';
+  assert (
+    select price from public.match_candidates('[{"id": "m", "terms": ["חלב"], "barcode": "7290000000001"}]') m
     join public.stores s on s.id = m.store_id
-    where li.name = 'חלב' and s.store_code = '39'
-  ) = 6.50, 'exact barcode match wrong';
+    where m.tier = 0 and s.store_code = '39'
+  ) = 6.50, 'exact barcode price wrong';
   assert (select count(*) from public.search_products('חלב')) = 1, 'search_products failed';
   assert (select count(*) from public.recent_price_changes((select id from public.households limit 1))) = 1,
     'recent_price_changes failed';

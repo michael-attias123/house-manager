@@ -63,13 +63,14 @@ export function createSeed(now: Date = new Date()): Db {
   const items: [string, number, string, string, boolean, string | null][] = [
     ['חלב', 2, 'dairy', MICHAEL, false, '7290000000001'],
     ['קוטג׳', 1, 'dairy', YAHALI, false, null],
-    ['עגבניות', 1, 'produce', YAHALI, false, null],
+    ['עגבניות', 1.5, 'produce', YAHALI, false, null],
     ['מלפפונים', 1, 'produce', MICHAEL, false, null],
     ['לחם אחיד', 1, 'bakery', MICHAEL, false, '7290000000020'],
     ['חזה עוף', 1, 'meat', YAHALI, false, null],
     ['סבון כלים', 1, 'cleaning', MICHAEL, false, null],
     ['פסטה', 3, 'pantry', YAHALI, false, null],
-    ['ביצים', 1, 'dairy', YAHALI, true, null],
+    ['ביצים', 1, 'dairy', YAHALI, false, null],
+    ['במבה', 2, 'pantry', YAHALI, true, null],
   ]
   items.forEach(([name, quantity, category, by, checked, barcode], i) => {
     const created = new Date(now.getTime() - (items.length - i) * 60_000).toISOString()
@@ -176,10 +177,14 @@ export function createSeed(now: Date = new Date()): Db {
     })
   }
 
-  // Supermarkets in Be'er Sheva and their prices
+  // Supermarkets in Be'er Sheva and their prices: two branches for some
+  // chains, and look-alike products (egg salad, chocolate milk, canned
+  // tomatoes) so the comparison has something to tell apart.
   const stores: [number, string, string, string][] = [
     [1, 'rami_levy', '39', 'רמי לוי באר שבע'],
+    [6, 'rami_levy', '41', 'רמי לוי ביג באר שבע'],
     [2, 'shufersal', '413', 'שופרסל דיל עמק שרה'],
+    [7, 'shufersal', '277', 'שופרסל אקספרס באר שבע'],
     [3, 'osher_ad', '22', 'אושר עד באר שבע'],
     [4, 'carrefour', '480', 'קרפור באר שבע'],
     [5, 'tiv_taam', '12', 'טיב טעם באר שבע'],
@@ -187,37 +192,72 @@ export function createSeed(now: Date = new Date()): Db {
   for (const [storeId, chain, code, name] of stores) {
     db.stores.push({ id: storeId, chain_id: chain, store_code: code, name, city: 'באר שבע', address: null, active: true, last_ingested_at: at(today, '06:20') })
   }
-  const products: [string, string, string | null][] = [
-    ['7290000000001', 'חלב תנובה 3% 1 ליטר', 'תנובה'],
-    ['7290000000010', 'קוטג׳ תנובה 5% 250 גרם', 'תנובה'],
-    ['7290000000020', 'לחם אחיד פרוס', 'אנג׳ל'],
-    ['7290000000030', 'חזה עוף טרי ארוז ק"ג', 'עוף טוב'],
-    ['7290000000040', 'סבון כלים פיירי 750 מ"ל', 'P&G'],
-    ['7290000000050', 'פסטה ספגטי 500 גרם', 'אסם'],
-    ['7290000000060', 'ביצים L תבנית 12', 'משק'],
-    ['7290000000070', 'קפה נמס עלית 200 גרם', 'עלית'],
-    ['7290000000080', 'שמן זית כתית 750 מ"ל', 'יד מרדכי'],
-    ['7290000000090', 'שמנת מתוקה 38% 250 מ"ל', 'תנובה'],
+  // barcode, name, manufacturer, pack (unit, qty) or 'kg' for weighted
+  const products: [string, string, string | null, [string, number] | 'kg'][] = [
+    ['7290000000001', 'חלב תנובה 3% 1 ליטר', 'תנובה', ['ml', 1000]],
+    ['7290000000002', 'חלב טרי מהגולן 3% בקרטון 1 ליטר', 'רמת הגולן', ['ml', 1000]],
+    ['7290000000003', 'חלב תנובה 3% 2 ליטר', 'תנובה', ['ml', 2000]],
+    ['7290000000004', 'שוקולד חלב 100 גרם', 'עלית', ['g', 100]],
+    ['7290000000010', 'קוטג׳ תנובה 5% 250 גרם', 'תנובה', ['g', 250]],
+    ['7290000000011', 'גבינת קוטג 5% 250 גרם', 'טרה', ['g', 250]],
+    ['7290000000020', 'לחם אחיד פרוס', 'אנג׳ל', ['g', 750]],
+    ['7290000000021', 'לחם כוסמין 500 גרם', 'ברמן', ['g', 500]],
+    ['7290000000022', 'פירורי לחם 500 גרם', 'אסם', ['g', 500]],
+    ['7290000000040', 'נוזל כלים לימון 750 מ"ל', 'סנו', ['ml', 750]],
+    ['7290000000041', 'סבון כלים פיירי 750 מ"ל', 'P&G', ['ml', 750]],
+    ['7290000000050', 'פסטה ספגטי 500 גרם', 'אסם', ['g', 500]],
+    ['7290000000051', 'פסטה פוסילי 500 גרם', 'ברילה', ['g', 500]],
+    ['7290000000060', 'ביצים אריזון 12 גדול', 'משק', ['u', 12]],
+    ['7290000000061', 'ביצים 12 יח בינוני M', 'משק', ['u', 12]],
+    ['7290000000062', 'ביצים אומגה 3 12 יח L', 'משק', ['u', 12]],
+    ['7290000000063', 'ביצים 30יח גדול L', 'משק', ['u', 30]],
+    ['7290000000064', 'סלט ביצים 400 גרם', 'שמיר', ['g', 400]],
+    ['7290000000065', 'קוצץ ביצים 200 גרם', 'שמיר', ['g', 200]],
+    ['7290000000070', 'קפה נמס עלית 200 גרם', 'עלית', ['g', 200]],
+    ['7290000000080', 'שמן זית כתית 750 מ"ל', 'יד מרדכי', ['ml', 750]],
+    ['7290000000090', 'שמנת מתוקה 38% 250 מ"ל', 'תנובה', ['ml', 250]],
+    ['7290000000100', 'עגבניות מרוסקות 850 גרם', 'יכין', ['g', 850]],
   ]
-  for (const [barcode, name, manufacturer] of products) {
-    db.products.push({ barcode, name, manufacturer, quantity: null, unit: null, is_weighted: false, updated_at: at(today) })
+  for (const [barcode, name, manufacturer, pack] of products) {
+    db.products.push({
+      barcode, name, manufacturer, quantity: null, unit: null, is_weighted: pack === 'kg',
+      pack_unit: pack === 'kg' ? 'g' : pack[0], pack_qty: pack === 'kg' ? 1000 : pack[1], updated_at: at(today),
+    })
   }
+  // Produce and fresh chicken: chain-internal codes, priced per kg.
+  const fresh: [string, string][] = [['1', 'עגבניה'], ['2', 'מלפפון'], ['3', 'חזה עוף טרי ארוז']]
   for (const chain of ['rami_levy', 'shufersal', 'osher_ad', 'carrefour', 'tiv_taam']) {
-    db.products.push({ barcode: `${chain}:1`, name: chain === 'tiv_taam' ? 'עגבניות שרי' : 'עגבניות', manufacturer: null, quantity: null, unit: 'ק"ג', is_weighted: true, updated_at: at(today) })
-    if (chain !== 'tiv_taam') {
-      db.products.push({ barcode: `${chain}:2`, name: 'מלפפונים', manufacturer: null, quantity: null, unit: 'ק"ג', is_weighted: true, updated_at: at(today) })
+    for (const [code, name] of fresh) {
+      if (chain === 'tiv_taam' && code === '2') continue
+      db.products.push({
+        barcode: `${chain}:${code}`, name, manufacturer: null, quantity: 1, unit: 'קילוגרם', is_weighted: true,
+        pack_unit: 'g', pack_qty: 1000, updated_at: at(today),
+      })
     }
   }
-  const priceTable: Record<number, Record<string, number>> = {
-    1: { '7290000000001': 6.2, '7290000000010': 5.1, '7290000000020': 6.9, '7290000000030': 32.9, '7290000000040': 9.9, '7290000000050': 4.5, '7290000000060': 12.9, '7290000000070': 24.9, '7290000000080': 39.9, '7290000000090': 6.5, 'rami_levy:1': 3.9, 'rami_levy:2': 3.5 },
-    2: { '7290000000001': 6.9, '7290000000010': 5.9, '7290000000020': 7.4, '7290000000030': 39.9, '7290000000040': 11.9, '7290000000050': 5.9, '7290000000060': 14.9, '7290000000070': 27.9, '7290000000080': 44.9, '7290000000090': 7.2, 'shufersal:1': 6.9, 'shufersal:2': 5.9 },
-    3: { '7290000000001': 6.1, '7290000000010': 5.2, '7290000000020': 6.8, '7290000000030': 31.9, '7290000000040': 10.5, '7290000000050': 4.9, '7290000000060': 12.5, '7290000000070': 25.9, '7290000000080': 41.9, '7290000000090': 6.6, 'osher_ad:1': 4.5, 'osher_ad:2': 3.9 },
-    4: { '7290000000001': 6.5, '7290000000010': 5.5, '7290000000020': 7.1, '7290000000030': 35.9, '7290000000040': 10.9, '7290000000050': 5.2, '7290000000060': 13.9, '7290000000070': 26.9, '7290000000080': 42.9, '7290000000090': 6.9, 'carrefour:1': 5.9, 'carrefour:2': 4.9 },
-    5: { '7290000000001': 7.2, '7290000000010': 6.4, '7290000000030': 44.9, '7290000000050': 6.9, '7290000000060': 16.9, '7290000000070': 29.9, 'tiv_taam:1': 12.9 },
+  const base: Record<string, number> = {
+    '7290000000001': 7.2, '7290000000002': 6.9, '7290000000003': 13.9, '7290000000004': 5.9,
+    '7290000000010': 5.9, '7290000000011': 5.7, '7290000000020': 7.36, '7290000000021': 16.9, '7290000000022': 6.9,
+    '7290000000040': 7.9, '7290000000041': 11.9, '7290000000050': 4.9, '7290000000051': 7.9,
+    '7290000000060': 14.24, '7290000000061': 13.13, '7290000000062': 22.9, '7290000000063': 35.5,
+    '7290000000064': 9.9, '7290000000065': 8.9, '7290000000070': 25.9, '7290000000080': 39.9,
+    '7290000000090': 6.9, '7290000000100': 10.9, ':1': 7.9, ':2': 5.9, ':3': 36.9,
   }
-  for (const [storeId, prices] of Object.entries(priceTable)) {
-    for (const [barcode, price] of Object.entries(prices)) {
-      db.prices.push({ store_id: Number(storeId), barcode, price, unit_price: null, price_updated_at: at(today, '05:40') })
+  // Each store's price level, and what it doesn't sell.
+  const level: Record<number, number> = { 1: 0.92, 6: 0.95, 2: 1.05, 7: 1.18, 3: 0.94, 4: 1.0, 5: 1.12 }
+  const missing: Record<number, string[]> = {
+    1: ['7290000000002', '7290000000041'], 6: ['7290000000002', '7290000000021'],
+    2: ['7290000000011'], 7: ['7290000000011', '7290000000063', '7290000000051'],
+    3: ['7290000000062'], 4: [], 5: ['7290000000020', '7290000000040', '7290000000060'],
+  }
+  for (const [storeId, chain] of stores.map(([id, c]): [number, string] => [id, c])) {
+    for (const [key, price] of Object.entries(base)) {
+      const barcode = key.startsWith(':') ? `${chain}${key}` : key
+      if (missing[storeId].includes(key) || !db.products.some((p) => p.barcode === barcode)) continue
+      db.prices.push({
+        store_id: storeId, barcode, price: Math.round(price * level[storeId] * 10) / 10,
+        unit_price: null, price_updated_at: at(today, '05:40'),
+      })
     }
   }
   db.price_history.push(
