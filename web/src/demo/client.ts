@@ -48,6 +48,8 @@ function pick(row: Row, columns: string[] | '*'): Row {
   return Object.fromEntries(columns.map((c) => [c, row[c]]))
 }
 
+const PRIVATE_TABLES = ['app_admins', 'allowed_emails', 'auth_users']
+
 // Embedded resources used by the app's selects.
 const RELATIONS: Record<string, { kind: 'children' | 'parent'; key: string }> = {
   'expenses.expense_shares': { kind: 'children', key: 'expense_id' },
@@ -148,6 +150,8 @@ class Query implements PromiseLike<Result> {
   }
 
   private run(): unknown {
+    // No grants on these in the real database: only the admin RPCs reach them.
+    if (PRIVATE_TABLES.includes(this.table)) throw new Error(`permission denied for table ${this.table}`)
     let affected: Row[]
     switch (this.op) {
       case 'select':

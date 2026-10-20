@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { defaultShouldDehydrateQuery, type Query } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { registerSW } from 'virtual:pwa-register'
 import { persister, queryClient } from '@/lib/queryClient'
@@ -29,9 +30,20 @@ registerSW({
   },
 })
 
+// Admin data (other people's addresses and households) is never written to
+// the offline cache in localStorage.
+const persistOptions = {
+  persister,
+  maxAge: 1000 * 60 * 60 * 24 * 7,
+  dehydrateOptions: {
+    shouldDehydrateQuery: (query: Query) =>
+      defaultShouldDehydrateQuery(query) && query.queryKey[0] !== 'admin',
+  },
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <PersistQueryClientProvider client={queryClient} persistOptions={{ persister, maxAge: 1000 * 60 * 60 * 24 * 7 }}>
+    <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
       <App />
     </PersistQueryClientProvider>
   </StrictMode>,

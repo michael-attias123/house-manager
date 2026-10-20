@@ -15,7 +15,9 @@ export function Layout() {
   const feature = featureForPath(pathname)
   const group = NAV.find((n) => n.tabs && n.paths.includes(feature?.path ?? ''))
   const title = pathname === '/' ? household.name : pathname === '/more' ? 'עוד' : (feature?.title ?? '')
-  const inMore = pathname === '/more' || moreFeatures().some((f) => f.path === feature?.path)
+  // A page without a nav entry (admin) is reached from "עוד", so it highlights that.
+  const inMore =
+    pathname === '/more' || moreFeatures().some((f) => f.path === feature?.path) || (feature != null && !feature.nav)
 
   return (
     <div className="mx-auto min-h-dvh max-w-lg">

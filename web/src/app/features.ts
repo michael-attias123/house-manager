@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { Wallet } from 'lucide-react'
+import { adminFeature } from '@/features/admin'
 import { billsFeature } from '@/features/bills'
 import { choresFeature } from '@/features/chores'
 import { expensesFeature } from '@/features/expenses'
@@ -21,6 +22,7 @@ export const FEATURES: FeatureDefinition[] = [
   pricesFeature,
   insightsFeature,
   householdFeature,
+  adminFeature,
 ]
 
 export const NAV_GROUPS: Record<NavGroupId, { title: string; icon: LucideIcon }> = {
