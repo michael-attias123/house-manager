@@ -10,7 +10,8 @@ import { Card, CardTitle } from '@/components/ui/Card'
 import { ErrorBox } from '@/components/ui/Feedback'
 import { Select } from '@/components/ui/Field'
 import { Sheet } from '@/components/ui/Sheet'
-import { useHousehold } from '@/features/household/HouseholdProvider'
+import { addPlaceholderMember } from '@/features/household/api'
+import { householdKeys, useHousehold } from '@/features/household/HouseholdProvider'
 import { importExpenses, type ImportResult } from '../api'
 import { expenseKeys } from '../hooks'
 import { EXPENSE_CATEGORIES } from '../lib/categories'
@@ -31,8 +32,11 @@ import {
  * it lives here rather than in the navigation: pick the export, check the
  * preview, import.
  */
+// "Add to the household" choice for a Splitwise person: a placeholder member
+// is created on import, until then rows use this stand-in id.
+const NEW = 'new:'
+
 export default function SplitwiseImportCard() {
-  const { members } = useHousehold()
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<{ name: string; data: SplitwiseFile } | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -56,14 +60,10 @@ export default function SplitwiseImportCard() {
         מעבירים לכאן את ההיסטוריה מ-Splitwise, פעם אחת. ב-Splitwise: הקבוצה ← הגדרות ←{' '}
         <span dir="ltr">Export as spreadsheet</span>, ואז בוחרים כאן את קובץ ה-CSV.
       </p>
-      {members.length < 2 ? (
-        <p className="text-sm text-ink-3">אפשר לייבא אחרי ששניכם מצטרפים לבית.</p>
-      ) : (
-        <Button variant="secondary" onClick={() => inputRef.current?.click()}>
-          <FileUp size={18} />
-          בחירת קובץ
-        </Button>
-      )}
+      <Button variant="secondary" onClick={() => inputRef.current?.click()}>
+        <FileUp size={18} />
+        בחירת קובץ
+      </Button>
       <input
         ref={inputRef}
         type="file"
@@ -91,16 +91,20 @@ function ImportSheet({
   const navigate = useNavigate()
 
   const keys = useMemo(() => rowKeys(data.rows), [data.rows])
-  const [people, setPeople] = useState<(string | null)[]>(() =>
-    guessPeople(data.people, members, {
+  const [people, setPeople] = useState<(string | null)[]>(() => {
+    const guessed = guessPeople(data.people, members, {
       id: user.id,
       names: [
         user.user_metadata?.full_name,
         user.user_metadata?.name,
         user.email?.split('@')[0],
       ].filter((n): n is string => typeof n === 'string'),
-    }),
-  )
+    })
+    // Whoever is not in the household yet (the partner before signing in)
+    // is added as a placeholder member by default.
+    let free = data.people.length - members.length
+    return guessed.map((id, i) => (id === null && free-- > 0 ? NEW + i : id))
+  })
   const [kinds, setKinds] = useState<RowKind[]>(() => data.rows.map(guessKind))
   const [categories, setCategories] = useState<string[]>(() =>
     data.rows.map((r) => guessExpenseCategory(r.description, r.category)),
@@ -132,6 +136,8 @@ function ImportSheet({
       (id) => Math.abs((expected[id] ?? 0) - (imported[id] ?? 0)) < 0.005,
     )
   const creditor = Object.entries(imported).sort((a, b) => b[1] - a[1])[0]
+  const nameOf = (id: string) =>
+    id.startsWith(NEW) ? data.people[Number(id.slice(NEW.length))] : memberById(id)?.display_name
 
   const dates = data.rows.map((r) => r.date).sort()
 
@@ -139,7 +145,20 @@ function ImportSheet({
     setBusy(true)
     setError(null)
     try {
-      setResult(await importExpenses(household.id, expenses, transfers))
+      const ids = [...people]
+      for (const [i, id] of ids.entries()) {
+        if (id?.startsWith(NEW)) ids[i] = (await addPlaceholderMember(household.id, data.people[i])).user_id
+      }
+      setPeople(ids)
+      await queryClient.invalidateQueries({ queryKey: householdKeys.members(household.id) })
+      const final = data.rows.map((row, i) => convertRow(row, keys[i], ids, kinds[i], categories[i]))
+      setResult(
+        await importExpenses(
+          household.id,
+          final.flatMap((c) => (c.ok && 'expense' in c ? [c.expense] : [])),
+          final.flatMap((c) => (c.ok && 'transfer' in c ? [c.transfer] : [])),
+        ),
+      )
       await queryClient.invalidateQueries({ queryKey: expenseKeys.all(household.id) })
     } catch (err) {
       setError(err)
@@ -228,6 +247,7 @@ function ImportSheet({
                 }
               >
                 <option value="">לא בבית</option>
+                <option value={NEW + i}>להוסיף לבית את {name}</option>
                 {members.map((m) => (
                   <option key={m.user_id} value={m.user_id}>
                     {m.display_name}
@@ -261,7 +281,7 @@ function ImportSheet({
                 : 'המאזן לא תואם ל-Splitwise, בגלל שורות שלא ייובאו'}
               {creditor && creditor[1] > 0 && (
                 <>
-                  : יתרה לטובת {memberById(creditor[0])?.display_name}{' '}
+                  : יתרה לטובת {nameOf(creditor[0])}{' '}
                   <span className="num font-semibold">{formatILS(creditor[1])}</span>
                 </>
               )}
@@ -278,9 +298,7 @@ function ImportSheet({
           <ul className="divide-y divide-line">
             {data.rows.map((row, i) => {
               const c = conversions[i]
-              const payer = c.ok
-                ? memberById('expense' in c ? c.expense.paidBy : c.transfer.from)
-                : undefined
+              const payer = c.ok ? nameOf('expense' in c ? c.expense.paidBy : c.transfer.from) : undefined
               return (
                 <li key={keys[i]} className="space-y-1.5 py-2.5">
                   <div className="flex items-baseline gap-2">
@@ -293,8 +311,8 @@ function ImportSheet({
                       <span>
                         ·{' '}
                         {kinds[i] === 'transfer'
-                          ? `העברה מ־${payer.display_name}`
-                          : `שולם ע״י ${payer.display_name}`}
+                          ? `העברה מ־${payer}`
+                          : `שולם ע״י ${payer}`}
                       </span>
                     )}
                     {!c.ok && <span className="text-rose-600">· לא ייובא: {c.reason}</span>}

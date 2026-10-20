@@ -9,7 +9,7 @@ import { ErrorBox } from '@/components/ui/Feedback'
 import { MemberAvatar } from '@/components/ui/MemberAvatar'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { FEATURES } from '@/app/features'
-import { regenerateInviteCode, renameHousehold, updateMember } from './api'
+import { addPlaceholderMember, regenerateInviteCode, renameHousehold, updateMember } from './api'
 import { householdKeys, useHousehold } from './HouseholdProvider'
 
 const COLORS = ['#0ea5e9', '#f43f5e', '#8b5cf6', '#f59e0b', '#10b981', '#ec4899', '#6366f1', '#14b8a6']
@@ -21,6 +21,7 @@ export function SettingsPage() {
   const [myName, setMyName] = useState(me?.display_name ?? '')
   const [myShare, setMyShare] = useState(me?.default_share_pct ?? 50)
   const [copied, setCopied] = useState(false)
+  const [partnerName, setPartnerName] = useState('')
 
   const refresh = () =>
     Promise.all([
@@ -49,6 +50,14 @@ export function SettingsPage() {
     onSuccess: refresh,
   })
 
+  const addPartner = useMutation({
+    mutationFn: () => addPlaceholderMember(household.id, partnerName.trim()),
+    onSuccess: async () => {
+      setPartnerName('')
+      await refresh()
+    },
+  })
+
   const regenerate = useMutation({
     mutationFn: () => regenerateInviteCode(household.id),
     onSuccess: refresh,
@@ -74,7 +83,10 @@ export function SettingsPage() {
           {members.map((m) => (
             <li key={m.user_id} className="flex items-center gap-3">
               <MemberAvatar member={m} />
-              <span className="flex-1">{m.display_name}</span>
+              <span className="flex-1">
+                {m.display_name}
+                {m.is_placeholder && <span className="ms-2 text-xs text-ink-3">בלי חשבון עדיין</span>}
+              </span>
               <span className="num text-sm text-ink-2">{m.default_share_pct}%</span>
             </li>
           ))}
@@ -84,6 +96,27 @@ export function SettingsPage() {
             <p className="text-sm">
               שלחו את קוד ההזמנה לבן/בת הזוג. אחרי הכניסה לאפליקציה בוחרים "הצטרפות עם קוד".
             </p>
+            <p className="text-sm text-ink-2">
+              אפשר גם להוסיף את השם כבר עכשיו ולרשום עליו הוצאות. בהצטרפות עם הקוד, הכל עובר לחשבון.
+            </p>
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (partnerName.trim()) addPartner.mutate()
+              }}
+            >
+              <Input
+                aria-label="שם בן/בת הזוג"
+                placeholder="שם"
+                value={partnerName}
+                onChange={(e) => setPartnerName(e.target.value)}
+              />
+              <Button type="submit" variant="secondary" disabled={!partnerName.trim() || addPartner.isPending}>
+                הוספה
+              </Button>
+            </form>
+            {addPartner.error && <ErrorBox error={addPartner.error} />}
           </div>
         )}
         <div className="flex items-center gap-2">

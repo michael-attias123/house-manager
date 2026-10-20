@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useHousehold } from '@/features/household/HouseholdProvider'
 import { shoppingKeys } from '@/features/shopping/hooks'
+import type { Store } from '@/lib/db-types'
 import { fetchBasketMatches, fetchChains, fetchLastIngest, fetchStores, linkItemToProduct, searchProducts } from './api'
 
 export const priceKeys = {
@@ -16,7 +17,13 @@ export function useChains() {
 }
 
 export function useStores() {
-  return useQuery({ queryKey: priceKeys.stores, queryFn: fetchStores, staleTime: 60 * 60_000 })
+  return useQuery({
+    queryKey: priceKeys.stores,
+    queryFn: fetchStores,
+    // The cache is persisted, so an empty answer from before the first price
+    // load would otherwise stick; refetch it every time until stores exist.
+    staleTime: (query) => ((query.state.data as Store[] | undefined)?.length ? 60 * 60_000 : 0),
+  })
 }
 
 export function useBasketMatches(listId: string | undefined, itemsVersion: string) {

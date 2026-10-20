@@ -40,6 +40,12 @@ export async function joinHousehold(inviteCode: string, displayName: string): Pr
   return unwrap(result) as Household
 }
 
+export async function addPlaceholderMember(householdId: string, displayName: string): Promise<HouseholdMember> {
+  return unwrap(
+    await supabase.rpc('add_placeholder_member', { p_household_id: householdId, p_display_name: displayName }),
+  ) as HouseholdMember
+}
+
 export async function updateMember(
   householdId: string,
   userId: string,
