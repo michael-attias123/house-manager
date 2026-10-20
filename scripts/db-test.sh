@@ -10,15 +10,16 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
   PG_BIN="${PG_BIN:-$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)}"
   DATA_DIR="$(mktemp -d)"
   PORT="${PGPORT:-54329}"
-  trap '"$PG_BIN/pg_ctl" -D "$DATA_DIR" -m immediate stop >/dev/null 2>&1 || true; rm -rf "$DATA_DIR"' EXIT
+  # pg_ctl refuses to run as root, so as root every pg_ctl call (the stop in the
+  # trap included) goes through RUN. ${RUN[@]+...} keeps set -u happy on bash < 4.4.
+  RUN=()
+  trap '${RUN[@]+"${RUN[@]}"} "$PG_BIN/pg_ctl" -D "$DATA_DIR" -m immediate stop >/dev/null 2>&1 || true; rm -rf "$DATA_DIR"' EXIT
   if [[ "$(id -u)" == "0" ]]; then
     chown -R postgres "$DATA_DIR"
     RUN=(sudo -u postgres)
-  else
-    RUN=()
   fi
-  "${RUN[@]}" "$PG_BIN/initdb" -D "$DATA_DIR" -U postgres --auth=trust >/dev/null
-  "${RUN[@]}" "$PG_BIN/pg_ctl" -D "$DATA_DIR" -o "-p $PORT -k /tmp" -l "$DATA_DIR/log" start >/dev/null
+  ${RUN[@]+"${RUN[@]}"} "$PG_BIN/initdb" -D "$DATA_DIR" -U postgres --auth=trust >/dev/null
+  ${RUN[@]+"${RUN[@]}"} "$PG_BIN/pg_ctl" -D "$DATA_DIR" -o "-p $PORT -k /tmp" -l "$DATA_DIR/log" start >/dev/null
   DATABASE_URL="postgresql://postgres@localhost:$PORT/postgres"
 fi
 
