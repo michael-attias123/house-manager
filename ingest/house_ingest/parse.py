@@ -153,7 +153,13 @@ def parse_prices(content: bytes, chain_id: str) -> list[PriceRecord]:
     return list(items.values())
 
 
-_FILE_NAME = re.compile(r"^(?P<kind>[A-Za-z]+?)(?P<chain>\d{13})-(?P<store>\d+)-(?P<stamp>\d{8,14})", re.IGNORECASE)
+# <kind><chain>[-<subchain>]-<store>-<yyyymmdd>[-]<time>, see fetch.py for examples.
+# The sub-chain group is lazy, so a 3/4-segment name never treats its store as one.
+_FILE_NAME = re.compile(
+    r"^(?P<kind>[A-Za-z]+?)(?P<chain>\d{13})(?:-(?P<subchain>\d+))??-(?P<store>\d+)"
+    r"-(?P<date>\d{8})(?:-?(?P<time>\d{1,6}))?(?=[.\-]|$)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -161,11 +167,12 @@ class FileInfo:
     kind: str
     chain_code: str
     store_code: str
-    stamp: str
+    stamp: str  # yyyymmddHHMMSS, zero-padded so stamps from every shape compare as strings
 
 
 def parse_file_name(name: str) -> FileInfo | None:
-    """PriceFull7290027600007-413-202610170300.xml → kind, chain, store, timestamp."""
+    """PriceFull7290027600007-001-413-20261017-030000.gz (or -413-202610170300.xml)
+    → kind, chain, store, timestamp."""
     match = _FILE_NAME.match(name.rsplit("/", 1)[-1])
     if not match:
         return None
@@ -173,5 +180,5 @@ def parse_file_name(name: str) -> FileInfo | None:
         kind=match["kind"].lower(),
         chain_code=match["chain"],
         store_code=normalize_store_code(match["store"]),
-        stamp=match["stamp"],
+        stamp=match["date"] + (match["time"] or "").ljust(6, "0"),
     )

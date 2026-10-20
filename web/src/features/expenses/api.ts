@@ -64,6 +64,43 @@ export function saveDefaultSplitExpense(
   })
 }
 
+export interface ImportResult {
+  expenses: number
+  settlements: number
+  skipped: number
+}
+
+/** Adds imported history in one transaction; rows imported before are skipped. */
+export async function importExpenses(
+  householdId: string,
+  expenses: { externalId: string; date: ISODate; description: string; amount: number; paidBy: string; shares: Shares; splitType: SplitType; category: string }[],
+  transfers: { externalId: string; date: ISODate; note: string; amount: number; from: string; to: string }[],
+): Promise<ImportResult> {
+  return unwrap(
+    await supabase.rpc('import_expenses', {
+      p_household_id: householdId,
+      p_expenses: expenses.map((e) => ({
+        external_id: e.externalId,
+        date: e.date,
+        description: e.description,
+        amount: e.amount,
+        paid_by: e.paidBy,
+        shares: e.shares,
+        split_type: e.splitType,
+        category: e.category,
+      })),
+      p_settlements: transfers.map((t) => ({
+        external_id: t.externalId,
+        date: t.date,
+        note: t.note,
+        amount: t.amount,
+        from_user: t.from,
+        to_user: t.to,
+      })),
+    }),
+  ) as ImportResult
+}
+
 export async function deleteExpense(id: string): Promise<void> {
   unwrap(await supabase.from('expenses').delete().eq('id', id))
 }

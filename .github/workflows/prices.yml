@@ -46,4 +46,13 @@ jobs:
       - if: env.SUPABASE_DB_URL != ''
         env:
           CHAINS: ${{ inputs.chains }}
-        run: python -m house_ingest run ${CHAINS:+--chains "$CHAINS"}
+        run: python -m house_ingest run --work-dir work ${CHAINS:+--chains "$CHAINS"}
+      # The scraper's status files list every file name it saw: the first thing
+      # to check when a chain changes its naming again.
+      - if: failure() && env.SUPABASE_DB_URL != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ingest-status
+          path: ingest/work/status
+          if-no-files-found: ignore
+          retention-days: 7

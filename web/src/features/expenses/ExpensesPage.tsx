@@ -171,6 +171,7 @@ function ExpenseRow({ expense, onClick }: { expense: ExpenseWithShares; onClick:
             {formatDay(expense.expense_date)}
             {expense.source === 'bill' && ' · חשבון קבוע'}
             {expense.source === 'trip' && ' · קנייה'}
+            {expense.source === 'import' && ' · מ-Splitwise'}
           </p>
         </div>
         <div className="text-end">
