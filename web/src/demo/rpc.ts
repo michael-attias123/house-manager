@@ -133,6 +133,21 @@ export const RPCS: Record<string, (args: Args) => unknown> = {
     return household
   },
 
+  add_placeholder_member: ({ p_household_id, p_display_name }) => {
+    const householdId = String(p_household_id)
+    requireMember(householdId)
+    const name = str(p_display_name)?.trim()
+    if (!name) throw new Error('name required')
+    const member = {
+      household_id: householdId, user_id: uuid(), display_name: name, color: '#f43f5e',
+      default_share_pct: 0, joined_at: new Date().toISOString(), is_placeholder: true,
+    }
+    db.household_members.push(member)
+    const all = members(householdId)
+    for (const m of all) m.default_share_pct = Math.round((100 / all.length) * 100) / 100
+    return member
+  },
+
   regenerate_invite_code: ({ p_household_id }) => {
     requireMember(String(p_household_id))
     const household = db.households.find((h) => h.id === p_household_id)!

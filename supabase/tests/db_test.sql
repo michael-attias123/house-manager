@@ -301,4 +301,59 @@ end;
 $$;
 reset role;
 
+-- Placeholder member, claimed on join ------------------------------------------
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000000d', 'early@example.com'),
+  ('00000000-0000-0000-0000-00000000000e', 'later@example.com');
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-00000000000d');
+select id as hid2, invite_code as code2 from public.create_household('בית שני', 'דנה') \gset
+select user_id as ph from public.add_placeholder_member(:'hid2', 'אבי') \gset
+
+select public.import_expenses(
+  :'hid2',
+  format('[{"external_id": "s|1", "date": "2026-08-25", "description": "דלק", "amount": 100,
+     "paid_by": "%s", "split_type": "equal", "category": "transport",
+     "shares": {"00000000-0000-0000-0000-00000000000d": 50, "%s": 50}}]', :'ph', :'ph')::jsonb,
+  format('[{"external_id": "s|2", "date": "2026-09-01", "amount": 20,
+     "from_user": "00000000-0000-0000-0000-00000000000d", "to_user": "%s"}]', :'ph')::jsonb
+);
+
+select set_config('test.ph', :'ph', false), set_config('test.hid2', :'hid2', false);
+do $$
+begin
+  assert (select count(*) from public.household_members) = 2, 'placeholder not added';
+  assert (select sum(default_share_pct) from public.household_members) = 100, 'shares not rebalanced';
+  -- The placeholder paid 100, owes 50, received 20: +30.
+  assert (select balance from public.member_balances where user_id = current_setting('test.ph')::uuid) = 30,
+    'placeholder balance wrong';
+  begin
+    update public.household_members set is_placeholder = true
+    where user_id = '00000000-0000-0000-0000-00000000000d';
+    raise exception 'is_placeholder was writable';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+
+select public.test_login('00000000-0000-0000-0000-00000000000e');
+select public.join_household(:'code2', 'אבי כהן');
+do $$
+declare
+  me uuid := '00000000-0000-0000-0000-00000000000e';
+begin
+  assert (select count(*) from public.household_members) = 2, 'join added a third member';
+  assert exists (
+    select 1 from public.household_members where user_id = me and not is_placeholder and display_name = 'אבי כהן'
+  ), 'placeholder not claimed';
+  assert (select balance from public.member_balances where user_id = me) = 30, 'balance did not move';
+  assert (select paid_by from public.expenses where external_id = 's|1') = me, 'expense not moved';
+  assert (select to_user from public.settlements where external_id = 's|2') = me, 'settlement not moved';
+  assert not exists (
+    select 1 from public.expense_shares where user_id = current_setting('test.ph')::uuid
+  ), 'shares left on the placeholder';
+end;
+$$;
+reset role;
+
 \echo 'All database tests passed'

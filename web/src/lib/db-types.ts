@@ -16,6 +16,8 @@ export interface HouseholdMember {
   color: string
   default_share_pct: number
   joined_at: string
+  /** Added before signing in; joining with the invite code claims it. */
+  is_placeholder?: boolean
 }
 
 export interface ShoppingList {
