@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useQueryClient, type QueryKey } from '@tanstack/react-query'
 import type { RealtimeChannel } from '@supabase/supabase-js'
-import { supabase } from './supabase'
+import { supabase } from '@/lib/supabase'
 
 interface SharedChannel {
   channel: RealtimeChannel

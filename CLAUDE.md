@@ -24,6 +24,7 @@ docs/setup.md       deployment guide (Hebrew)
 
 ```bash
 cd web && pnpm dev | pnpm lint | pnpm typecheck | pnpm test | pnpm build
+cd web && pnpm dev:demo | pnpm build:demo   # no backend: src/demo fakes Supabase with sample data
 ./scripts/db-test.sh            # needs local Postgres binaries or DATABASE_URL
 cd ingest && python -m pytest   # parser tests (DB test runs via db-test.sh)
 ```
@@ -47,7 +48,10 @@ CI (`.github/workflows/ci.yml`) runs all of the above. Run them before pushing.
      lucide icon, path, routes (lazy page), `nav` placement, optional Widget.
 4. **Register** it in `web/src/app/features.ts`. Nav, routes and dashboard
    pick it up from there; `app/features.test.ts` checks ids and paths are unique.
-5. **Insights** (optional): add a rule file in `features/insights/rules/` and
+5. **Demo**: `src/demo` stands in for Supabase in the demo build. A new table
+   works there as is; a new RPC or view needs a TS version in `demo/rpc.ts`,
+   and sample rows go in `demo/seed.ts`.
+6. **Insights** (optional): add a rule file in `features/insights/rules/` and
    list it in `rules/index.ts`. Rules are pure `(InsightData) => Insight[]`.
 
 Features may import another feature's `api.ts`, `hooks.ts` or `lib/`, never
@@ -68,6 +72,7 @@ its components.
 - Mutations that the partner should see live: `useRealtimeInvalidate(table, ...)`
   (one shared channel per table) and add the table to the `supabase_realtime`
   publication in its migration.
+- No `alert`/`confirm`/`prompt` (blocked in some embeds); use `ConfirmButton`.
 - Server-side multi-row writes go through an RPC (`complete_trip`,
   `save_expense`, `pay_bill`) so they are atomic and validated.
 

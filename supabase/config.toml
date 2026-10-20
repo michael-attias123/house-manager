@@ -9,6 +9,10 @@ schemas = ["public"]
 site_url = "http://localhost:5173"
 additional_redirect_urls = ["http://localhost:5173"]
 
-[auth.email]
-enable_signup = true
-otp_length = 6
+# Sign-in is Google only (docs/setup.md). For `supabase start`, set the two
+# env vars from a Google OAuth client with redirect URI
+# http://127.0.0.1:54321/auth/v1/callback.
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { RouterProvider } from 'react-router-dom'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { ErrorBox, Loading } from '@/components/ui/Feedback'
@@ -9,10 +9,17 @@ import { OnboardingPage } from '@/features/household/OnboardingPage'
 import { createAppRouter } from './router'
 import type { User } from '@supabase/supabase-js'
 
+const DemoBanner = import.meta.env.VITE_DEMO === '1' ? lazy(() => import('@/demo/DemoBanner')) : null
+
 export function App() {
   if (!isSupabaseConfigured) return <SetupNotice />
   return (
     <AuthProvider>
+      {DemoBanner && (
+        <Suspense fallback={null}>
+          <DemoBanner />
+        </Suspense>
+      )}
       <AuthGate />
     </AuthProvider>
   )

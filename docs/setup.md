@@ -25,28 +25,31 @@
    - **Project URL**: `https://<ref>.supabase.co`
    - **Publishable key**: מתחיל ב-`sb_publishable_`. בפרויקט ישן משתמשים ב-`anon` key.
 
-### התחברות עם קוד במייל
+### כניסה עם Google
 
-באפליקציה שמותקנת על מסך הבית, קישור קסם ("magic link") נפתח בדפדפן ולא באפליקציה. לכן ההתחברות היא בקוד בן 6 ספרות שמגיע במייל:
+נכנסים לאפליקציה עם חשבון Google, בלי סיסמאות ובלי מיילים. ההגדרה נעשית פעם אחת, ולוקחת בערך 10 דקות.
 
-1. נכנסים ל-**Authentication → Emails → Templates → Magic Link**.
-2. מחליפים את תוכן התבנית ב:
-   ```html
-   <h2>קוד הכניסה שלך</h2>
-   <p style="font-size:28px;letter-spacing:6px"><b>{{ .Token }}</b></p>
-   <p>או <a href="{{ .ConfirmationURL }}">כניסה בקישור</a></p>
-   ```
-3. ב-**Authentication → URL Configuration**:
+**ב-Google Cloud:**
+
+1. נכנסים ל-[console.cloud.google.com](https://console.cloud.google.com) עם חשבון Google, ויוצרים פרויקט חדש (למשל `house-manager`).
+2. **APIs & Services → OAuth consent screen** (או **Google Auth Platform → Branding**):
+   - **App name:** `ניהול הבית`, ומייל לתמיכה (המייל שלך).
+   - **Audience:** `External`.
+   - תחת **Test users** מוסיפים את המייל שלך ואת המייל של יהלי.
+   > כל עוד האפליקציה במצב "Testing", רק המיילים ברשימה הזו יכולים להיכנס. לשניכם זה מושלם, ואין צורך באישור מ-Google.
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - **Application type:** `Web application`.
+   - **Authorized redirect URIs:** מוסיפים `https://<ref>.supabase.co/auth/v1/callback`. ה-`<ref>` הוא מזהה הפרויקט שמופיע ב-Project URL משלב 3 למעלה.
+   - לוחצים **Create** ומעתיקים את ה-**Client ID** ואת ה-**Client secret**.
+
+**ב-Supabase:**
+
+4. **Authentication → Sign In / Providers → Google**: מפעילים, מדביקים את ה-Client ID וה-Client secret, ושומרים.
+5. **Authentication → URL Configuration**:
    - **Site URL:** כתובת האתר משלב 2, למשל `https://house-manager.pages.dev`.
    - **Redirect URLs:** מוסיפים `https://house-manager.pages.dev/**`, `https://*.house-manager.pages.dev/**` (לגרסאות תצוגה מקדימה) ו-`http://localhost:5173/**`.
 
-> שירות המייל המובנה של Supabase מוגבל לכמה מיילים בשעה. זה מספיק לשני אנשים. אם צריך יותר, אפשר לחבר SMTP חינמי (למשל Resend) ב-**Authentication → Emails → SMTP Settings**.
-
-### כניסה עם Google (רשות)
-
-1. ב-[Google Cloud Console](https://console.cloud.google.com/apis/credentials) נכנסים ל-**Create credentials → OAuth client ID → Web application**.
-2. ב-**Authorized redirect URIs** מוסיפים: `https://<ref>.supabase.co/auth/v1/callback`
-3. מעתיקים את ה-Client ID וה-Client secret ל-Supabase, תחת **Authentication → Sign In / Providers → Google**, ומפעילים.
+> את Site URL אפשר למלא רק אחרי שלב 2, כשיש כתובת לאתר. אפשר לחזור לכאן אחר כך.
 
 ---
 
@@ -150,5 +153,9 @@ pnpm dev                     # http://localhost:5173
   ```sql
   select cron.schedule('auto-pay-due-bills', '15 4 * * *', 'select public.auto_pay_due_bills()');
   ```
-- **הקוד לא מגיע במייל**: בודקים בתיקיית הספאם. אם זה לא שם, בודקים ב-**Authentication → Logs** אם נחסמתם ממגבלת המיילים, ומחכים שעה.
+- **Google מציג שגיאה בכניסה**:
+  - `redirect_uri_mismatch`: הכתובת ב-Authorized redirect URIs לא זהה ל-`https://<ref>.supabase.co/auth/v1/callback`.
+  - "Access blocked" / "app has not completed verification": המייל לא נמצא ברשימת Test users.
+  - חוזרים לאתר אבל לא מחוברים: כתובת האתר חסרה ב-Redirect URLs ב-Supabase.
+- **באייפון, האפליקציה המותקנת לא נשארת מחוברת אחרי Google**: נכנסים פעם אחת דרך ספארי, ואז מוסיפים שוב למסך הבית. אם זה עדיין לא עובד, אפשר להוסיף חזרה כניסה עם קוד במייל.
 - **השוואת הסלים ריקה**: בודקים ביומן של **Supermarket prices** אילו רשתות נכשלו. אם חלקן נחסמו, עוברים לסעיף 5.

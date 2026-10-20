@@ -1,5 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 
+// In the demo build (`pnpm build:demo`) vite.config.ts resolves this module to
+// src/demo/supabase.ts, an in-browser stand-in with sample data.
+
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined
 
@@ -11,8 +14,4 @@ export const supabase = createClient(url ?? 'http://localhost:54321', key ?? 'mi
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
 })
 
-/** Throws the PostgREST error, so TanStack Query can surface it. */
-export function unwrap<T>(result: { data: T; error: { message: string } | null }): T {
-  if (result.error) throw new Error(result.error.message)
-  return result.data
-}
+export { unwrap } from './unwrap'
