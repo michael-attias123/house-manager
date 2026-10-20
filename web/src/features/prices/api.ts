@@ -1,5 +1,6 @@
 import { supabase, unwrap } from '@/lib/supabase'
-import type { BasketMatch, Chain, IngestRun, ProductSearchResult, Store } from '@/lib/db-types'
+import type { Chain, IngestRun, MatchCandidate, ProductSearchResult, Store } from '@/lib/db-types'
+import type { MatchRequest } from './lib/match'
 
 export async function fetchChains(): Promise<Chain[]> {
   return unwrap(await supabase.from('chains').select('id, name').order('name')) as Chain[]
@@ -11,13 +12,20 @@ export async function fetchStores(): Promise<Store[]> {
   ) as Store[]
 }
 
-export async function fetchBasketMatches(listId: string): Promise<BasketMatch[]> {
-  const rows = unwrap(await supabase.rpc('basket_matches', { p_list_id: listId })) as BasketMatch[]
-  return rows.map((r) => ({ ...r, price: Number(r.price) }))
+/** Per item, store and pack size: the cheapest product of the best-matching kind. */
+export async function fetchMatchCandidates(requests: MatchRequest[]): Promise<MatchCandidate[]> {
+  if (requests.length === 0) return []
+  const rows = unwrap(await supabase.rpc('match_candidates', { p_items: requests })) as MatchCandidate[]
+  return rows.map((r) => ({
+    ...r,
+    price: Number(r.price),
+    pack_qty: r.pack_qty == null ? null : Number(r.pack_qty),
+  }))
 }
 
 export async function searchProducts(query: string): Promise<ProductSearchResult[]> {
-  return unwrap(await supabase.rpc('search_products', { p_query: query, p_limit: 25 })) as ProductSearchResult[]
+  const rows = unwrap(await supabase.rpc('search_products', { p_query: query, p_limit: 25 })) as ProductSearchResult[]
+  return rows.map((r) => ({ ...r, pack_qty: r.pack_qty == null ? null : Number(r.pack_qty) }))
 }
 
 export async function linkItemToProduct(

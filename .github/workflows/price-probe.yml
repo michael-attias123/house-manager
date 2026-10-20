@@ -1,0 +1,53 @@
+name: Price probe
+
+# Read-only: prints what the catalogue holds for some item names, to check
+# why the basket comparison matched what it did. Run it from the Actions tab.
+on:
+  workflow_dispatch:
+    inputs:
+      terms:
+        description: 'Item names, comma separated (empty = the list below)'
+        required: false
+        default: ''
+      dump:
+        description: 'Also print a gzip+base64 CSV slice of the catalogue (for local testing)'
+        type: boolean
+        default: false
+  # Also whenever the probe itself changes, so it can be tried from a branch.
+  push:
+    paths: ['scripts/price-probe.sql', 'scripts/price-dump.sql', '.github/workflows/price-probe.yml']
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      TERMS: ${{ inputs.terms }}
+      DUMP: ${{ inputs.dump || github.event_name == 'push' }}
+      DEFAULT_TERMS: >-
+        ביצים,חלב,לחם,לחם אחיד,פיתות,לחמניות,עגבניות,עגבניה,מלפפונים,מלפפון,בצל,שום,תפוחי אדמה,
+        תפוח אדמה,בטטה,גזר,פלפל,חסה,כרוב,קישוא,חציל,לימון,אבוקדו,בננה,תפוחים,תפוח,תפוזים,תפוז,
+        אגסים,ענבים,אבטיח,מלון,תותים,פטרוזיליה,כוסברה,שמיר,נענע,קוטג,גבינה צהובה,גבינה לבנה,
+        גבינה בולגרית,שמנת,שמנת חמוצה,יוגורט,חמאה,מרגרינה,אורז,פסטה,ספגטי,קוסקוס,פתיתים,סוכר,
+        קמח,שמן,שמן זית,מלח,פלפל שחור,קפה,תה,טחינה,חומוס,טונה,תירס,שעועית,עדשים,קורנפלקס,דבש,
+        ריבה,שוקולד,ממרח שוקולד,ביסלי,במבה,עוגיות,נייר טואלט,מגבות נייר,סבון כלים,אבקת כביסה,
+        מרכך כביסה,שקיות אשפה,חזה עוף,שוקיים,כרעיים,עוף שלם,שניצל,בשר טחון,נקניקיות,סלמון,
+        מים מינרלים,מים,קולה,מיץ תפוזים,בירה,יין,חיתולים,מגבונים,משחת שיניים,שמפו
+    steps:
+      - name: Skip until Supabase is connected
+        if: env.SUPABASE_DB_URL == ''
+        run: echo "::notice::Add the SUPABASE_DB_URL secret first (see docs/setup.md)."
+      - uses: actions/checkout@v5
+        if: env.SUPABASE_DB_URL != ''
+      - if: env.SUPABASE_DB_URL != ''
+        run: |
+          url="$(printf %s "$SUPABASE_DB_URL" | tr -d '\r\n')"
+          terms="$(printf %s "${TERMS:-$DEFAULT_TERMS}" | tr -d '\n' | sed 's/, */,/g')"
+          psql "$url" -v terms="$terms" -f scripts/price-probe.sql
+          if [[ "$DUMP" == "true" ]]; then
+            echo "---DUMP-BEGIN---"
+            psql "$url" -q -X -v terms="$terms" -f scripts/price-dump.sql | gzip -9 | base64 -w 0
+            echo
+            echo "---DUMP-END---"
+          fi

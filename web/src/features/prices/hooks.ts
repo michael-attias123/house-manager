@@ -2,12 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useHousehold } from '@/features/household/HouseholdProvider'
 import { shoppingKeys } from '@/features/shopping/hooks'
 import type { Store } from '@/lib/db-types'
-import { fetchBasketMatches, fetchChains, fetchLastIngest, fetchStores, linkItemToProduct, searchProducts } from './api'
+import { fetchChains, fetchMatchCandidates, fetchLastIngest, fetchStores, linkItemToProduct, searchProducts } from './api'
+import type { MatchRequest } from './lib/match'
 
 export const priceKeys = {
   chains: ['chains'] as const,
   stores: ['stores'] as const,
-  matches: (listId: string) => ['basket-matches', listId] as const,
+  matches: ['match-candidates'] as const,
   search: (q: string) => ['product-search', q] as const,
   lastIngest: ['last-ingest'] as const,
 }
@@ -26,11 +27,12 @@ export function useStores() {
   })
 }
 
-export function useBasketMatches(listId: string | undefined, itemsVersion: string) {
+/** match_candidates for the list's open items; refetched when they change. */
+export function useMatchCandidates(requests: MatchRequest[]) {
   return useQuery({
-    queryKey: [...priceKeys.matches(listId ?? ''), itemsVersion],
-    queryFn: () => fetchBasketMatches(listId!),
-    enabled: Boolean(listId),
+    queryKey: [...priceKeys.matches, requests],
+    queryFn: () => fetchMatchCandidates(requests),
+    enabled: requests.length > 0,
     staleTime: 5 * 60_000,
   })
 }
@@ -57,7 +59,7 @@ export function useLinkItem(listId: string) {
       linkItemToProduct(household.id, item, barcode),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: shoppingKeys.items(listId) })
-      void queryClient.invalidateQueries({ queryKey: priceKeys.matches(listId) })
+      void queryClient.invalidateQueries({ queryKey: priceKeys.matches })
     },
   })
 }

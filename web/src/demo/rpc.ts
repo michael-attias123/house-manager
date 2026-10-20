@@ -5,6 +5,7 @@ import { fromAgorot, toAgorot } from '@/lib/money'
 import { advanceDueDate } from '@/features/bills/lib/bills'
 import { computeShares } from '@/features/expenses/lib/split'
 import type { BillFrequency } from '@/lib/db-types'
+import { hasWords, normName } from '@/features/prices/lib/normalize'
 import { currentUserId, db, uuid, withDefaults, type Row } from './store'
 
 const normalize = (s: string) => s.trim().toLowerCase()
@@ -94,6 +95,9 @@ export function autoPayDueBills() {
     }
   }
 }
+
+/** products.name_head: the normalized name without leading numbers. */
+const productHead = (normalized: string) => normalized.replace(/^([0-9][0-9.]* )+/, '')
 
 function productMatchScore(query: string, name: string): number {
   const q = normalize(query)
@@ -269,59 +273,75 @@ export const RPCS: Record<string, (args: Args) => unknown> = {
     return bill.next_due_date
   },
 
-  basket_matches: ({ p_list_id }) => {
-    const items = db.list_items.filter((i) => i.list_id === p_list_id && !i.checked)
+  // match_candidates(): tiers by name, exclusions, then the cheapest product
+  // per item, store and pack size (see 20261021000100_basket_matching.sql).
+  match_candidates: ({ p_items }) => {
     const activeStores = new Set(db.stores.filter((s) => s.active).map((s) => s.id))
-    const productByCode = new Map(db.products.map((p) => [p.barcode, p]))
     const result: Row[] = []
-    for (const item of items) {
-      // Exact barcode first (rank 0), then the most similar names.
-      const candidates: { barcode: string; rank: number; exact: boolean }[] = []
-      if (item.barcode) candidates.push({ barcode: item.barcode, rank: 0, exact: true })
-      db.products
-        .map((p) => ({ p, score: productMatchScore(item.name, p.name) }))
-        .filter((x) => x.score >= 0.5)
-        .sort((a, b) => b.score - a.score || a.p.name.length - b.p.name.length)
-        .slice(0, 30)
-        .forEach((x, i) => candidates.push({ barcode: x.p.barcode, rank: i + 1, exact: false }))
-
-      const best = new Map<number, { rank: number; price: number; barcode: string; exact: boolean }>()
-      for (const c of candidates) {
-        for (const price of db.prices.filter((p) => p.barcode === c.barcode && activeStores.has(p.store_id))) {
-          const current = best.get(price.store_id)
-          if (!current || c.rank < current.rank || (c.rank === current.rank && price.price < current.price)) {
-            best.set(price.store_id, { rank: c.rank, price: Number(price.price), barcode: c.barcode, exact: c.exact })
-          }
+    for (const req of (p_items ?? []) as Row[]) {
+      const terms = ((req.terms ?? []) as string[]).map(normName).filter(Boolean)
+      const exclude = ((req.exclude ?? []) as string[]).map(normName)
+      const require = ((req.require ?? []) as string[]).map(normName)
+      const tiers = new Map<string, number>()
+      for (const p of db.products) {
+        const name = normName(String(p.name))
+        const head = productHead(name)
+        if (exclude.some((x) => hasWords(name, x))) continue
+        if (require.length && !require.some((r) => hasWords(name, r))) continue
+        if (req.weighted != null && p.is_weighted !== req.weighted) continue
+        for (const t of terms) {
+          if (!t.split(' ').every((w) => hasWords(name, w))) continue
+          const tier = head === t || head.startsWith(`${t} `) || head.split(' ')[0] === t.split(' ')[0] ? 1 : 2
+          tiers.set(String(p.barcode), Math.min(tier, tiers.get(String(p.barcode)) ?? 9))
         }
       }
-      for (const [storeId, m] of best) {
-        result.push({
-          store_id: storeId, item_id: item.id, barcode: m.barcode,
-          product_name: productByCode.get(m.barcode)?.name ?? '', price: m.price, exact: m.exact,
-        })
+      const bestTier = Math.min(...tiers.values())
+      const chosen = [...tiers].filter(([, tier]) => tier === bestTier)
+      if (req.barcode) chosen.push([String(req.barcode), 0])
+      const cheapest = new Map<string, Row>()
+      for (const [barcode, tier] of chosen) {
+        const product = db.products.find((p) => p.barcode === barcode)
+        if (!product) continue
+        for (const price of db.prices.filter((x) => x.barcode === barcode && activeStores.has(x.store_id))) {
+          const key = [tier === 0, price.store_id, product.pack_unit, product.pack_qty, product.is_weighted].join('|')
+          const current = cheapest.get(key)
+          if (current && Number(current.price) <= Number(price.price)) continue
+          cheapest.set(key, {
+            item_id: req.id, tier, store_id: price.store_id, barcode, product_name: product.name,
+            price: Number(price.price), pack_unit: product.pack_unit ?? null, pack_qty: product.pack_qty ?? null,
+            is_weighted: product.is_weighted,
+          })
+        }
       }
+      result.push(...cheapest.values())
     }
     return result
   },
 
   search_products: ({ p_query, p_limit }) => {
-    const q = String(p_query ?? '').trim()
+    const raw = String(p_query ?? '').trim()
+    const q = normName(raw)
     if (!q) return []
     return db.products
-      .map((p) => ({ p, score: p.barcode === q ? 2 : productMatchScore(q, p.name) }))
-      .filter((x) => x.score >= 0.5)
-      .sort((a, b) => b.score - a.score || a.p.name.length - b.p.name.length)
-      .slice(0, Number(p_limit ?? 20))
-      .map(({ p }) => {
+      .map((p) => {
+        const name = normName(String(p.name))
+        const head = productHead(name)
+        const words = q.split(' ').every((w) => hasWords(name, w))
+        const tier = p.barcode === raw ? 0 : words ? (head.split(' ')[0] === q.split(' ')[0] ? 1 : 2) : productMatchScore(q, name) >= 0.6 ? 3 : 9
         const prices = db.prices.filter((x) => x.barcode === p.barcode).map((x) => Number(x.price))
         return {
+          tier,
           barcode: p.barcode, name: p.name, manufacturer: p.manufacturer,
+          pack_unit: p.pack_unit ?? null, pack_qty: p.pack_qty ?? null, is_weighted: p.is_weighted,
           min_price: prices.length ? Math.min(...prices) : null,
           max_price: prices.length ? Math.max(...prices) : null,
           store_count: prices.length,
         }
       })
-      .sort((a, b) => Number(b.store_count > 0) - Number(a.store_count > 0))
+      .filter((x) => x.tier < 9)
+      .sort((a, b) => a.tier - b.tier || b.store_count - a.store_count || String(a.name).localeCompare(String(b.name)))
+      .slice(0, Number(p_limit ?? 25))
+      .map(({ tier: _tier, ...rest }) => rest)
   },
 
   recent_price_changes: ({ p_household_id, p_days }) => {
