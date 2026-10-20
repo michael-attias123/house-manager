@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { registerSW } from 'virtual:pwa-register'
 import { persister, queryClient } from '@/lib/queryClient'
+import { supabase } from '@/lib/supabase'
 import { App } from '@/app/App'
 import './index.css'
 
@@ -11,6 +12,11 @@ import './index.css'
 // return to the foreground and hourly; autoUpdate then reloads the page.
 registerSW({
   immediate: true,
+  // A reload while the sign-in redirect (?code=) is being exchanged aborts the
+  // exchange and loses the sign-in, so let the auth client settle first.
+  onNeedReload() {
+    void supabase.auth.initialize().finally(() => window.location.reload())
+  },
   onRegisteredSW(_url, registration) {
     if (!registration) return
     const check = () => {

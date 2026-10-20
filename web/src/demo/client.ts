@@ -242,6 +242,9 @@ function emit(event: string) {
 }
 
 const auth = {
+  async initialize() {
+    return { error: null }
+  },
   onAuthStateChange(callback: AuthListener) {
     listeners.add(callback)
     setTimeout(() => callback('INITIAL_SESSION', signedIn ? session() : null), 0)
