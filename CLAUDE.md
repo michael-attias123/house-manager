@@ -76,8 +76,17 @@ its components.
 - Server-side multi-row writes go through an RPC (`complete_trip`,
   `save_expense`, `pay_bill`) so they are atomic and validated.
 - Sign-up is limited by `public.allowed_emails` (a trigger on `auth.users`;
-  an empty list lets everyone in). The owner adds addresses in the SQL
-  editor; never commit real ones.
+  an empty list lets everyone in). The owner adds addresses in the admin
+  screen or the SQL editor; never commit real ones.
+- Admin (`features/admin`): admins are user ids in `public.app_admins`
+  (SQL only, no client access). App-wide RPCs are named `admin_*`, are
+  security definer and start with `if not public.is_admin() then raise
+  ... errcode '42501'`; the client calls `is_admin()` only to decide what
+  to show. Their demo ports in `demo/rpc.ts` keep the same guards.
+- Columns that name a household member are listed once, in SQL
+  `move_member_refs()` (and `MEMBER_COLUMNS` in `demo/rpc.ts`); a new one
+  goes there. `detach_member()` is the one rule for taking a member out
+  (admin removal and deleted accounts): placeholder if they have history.
 
 ## Price data
 

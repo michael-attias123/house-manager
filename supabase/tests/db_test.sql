@@ -452,4 +452,438 @@ $$;
 delete from public.allowed_emails;
 delete from auth.users where email ilike '%@allowlist.example.com';
 
+-- Admin (app_admins, admin_* RPCs, detaching members) ---------------------------
+-- The accounts come first: once the allowlist has an address, new ones are refused.
+insert into auth.users (id, email, raw_user_meta_data, last_sign_in_at) values
+  ('00000000-0000-0000-0000-0000000000f1', 'boss@admin.example.com', '{"full_name": "Boss"}', now()),
+  ('00000000-0000-0000-0000-0000000000f2', 'deputy@admin.example.com', '{}', null),
+  ('00000000-0000-0000-0000-0000000000f3', 'loner@admin.example.com', '{}', null),
+  ('00000000-0000-0000-0000-0000000000f4', 'quiet@admin.example.com', '{}', null);
+
+-- 1. Without a row in app_admins nothing is allowed.
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000f1');
+do $$
+declare
+  calls text[] := array[
+    'select public.admin_list_allowed_emails()',
+    'select public.admin_add_allowed_email(''x@example.com'')',
+    'select public.admin_remove_allowed_email(''x@example.com'')',
+    'select public.admin_list_households()',
+    'select public.admin_delete_household(gen_random_uuid())',
+    'select public.admin_remove_member(gen_random_uuid(), gen_random_uuid())',
+    'select public.admin_list_users()',
+    'select public.admin_delete_user(gen_random_uuid())'
+  ];
+  c text;
+begin
+  assert not public.is_admin(), 'is_admin() true without a row in app_admins';
+  foreach c in array calls loop
+    begin
+      execute c;
+      raise exception 'a non-admin ran: %', c;
+    exception when insufficient_privilege then null;
+    end;
+  end loop;
+  begin
+    perform 1 from public.app_admins;
+    raise exception 'clients can read app_admins';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.app_admins (user_id) values (auth.uid());
+    raise exception 'clients can write app_admins';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.move_member_refs(gen_random_uuid(), gen_random_uuid(), gen_random_uuid());
+    raise exception 'clients can run move_member_refs';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.detach_member(gen_random_uuid(), gen_random_uuid());
+    raise exception 'clients can run detach_member';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+reset role;
+
+set role anon;
+select set_config('request.jwt.claims', '', false);
+do $$
+begin
+  begin
+    perform public.admin_list_users();
+    raise exception 'anon ran admin_list_users';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.is_admin();
+    raise exception 'anon ran is_admin';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+reset role;
+
+-- Bootstrap, as in docs/setup.md (two admins, to test that one cannot delete the other).
+insert into public.app_admins (user_id)
+select id from auth.users where email in ('boss@admin.example.com', 'deputy@admin.example.com');
+
+-- 2. The allowlist.
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000f1');
+do $$
+declare
+  r public.allowed_emails;
+begin
+  assert public.is_admin(), 'admin not recognised';
+  assert (select count(*) from public.admin_list_allowed_emails()) = 0, 'allowlist not empty before the admin tests';
+  r := public.admin_add_allowed_email(' Friend@Example.com ');
+  assert r.email = 'friend@example.com', format('address not normalised: %s', r.email);
+  -- The first address would close sign-up, so the admin's own comes with it.
+  assert (select array_agg(email order by email) from public.admin_list_allowed_emails())
+    = array['boss@admin.example.com', 'friend@example.com'], 'own address not added with the first one';
+  assert (select on_allowlist from public.admin_list_users() where email = 'boss@admin.example.com'),
+    'on_allowlist wrong';
+  begin
+    perform public.admin_add_allowed_email('nope');
+    raise exception 'invalid address accepted';
+  exception when others then
+    if sqlerrm <> 'invalid email' then raise; end if;
+  end;
+  perform public.admin_add_allowed_email('friend@example.com', 'חבר');
+  r := public.admin_add_allowed_email('FRIEND@example.com');
+  assert r.note = 'חבר', 'note lost when the address was added again';
+  begin
+    perform public.admin_remove_allowed_email(' BOSS@admin.example.com');
+    raise exception 'own address removed';
+  exception when others then
+    if sqlerrm <> 'cannot remove your own email' then raise; end if;
+  end;
+  begin
+    perform public.admin_remove_allowed_email('ghost@example.com');
+    raise exception 'missing address removed';
+  exception when others then
+    if sqlerrm <> 'not found' then raise; end if;
+  end;
+  perform public.admin_add_allowed_email('other@example.com');
+  perform public.admin_remove_allowed_email('other@example.com');
+  assert (select count(*) from public.admin_list_allowed_emails()) = 2, 'removing an address failed';
+end;
+$$;
+reset role;
+
+-- The last address cannot go, even when it is not the admin's own.
+delete from public.allowed_emails where email = 'boss@admin.example.com';
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000f1');
+do $$
+begin
+  begin
+    perform public.admin_remove_allowed_email('friend@example.com');
+    raise exception 'allowlist emptied';
+  exception when others then
+    if sqlerrm <> 'allowlist cannot be empty' then raise; end if;
+  end;
+  assert (select array_agg(email) from public.admin_list_allowed_emails()) = array['friend@example.com'],
+    'refused removal was not rolled back';
+end;
+$$;
+reset role;
+delete from public.allowed_emails;
+
+-- 3. Households. The admin has one, and a member without history joins it.
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000f1');
+select id as admin_hid, invite_code as admin_code from public.create_household('בית המנהל', 'מנהל') \gset
+select public.test_login('00000000-0000-0000-0000-0000000000f4');
+select public.join_household(:'admin_code', 'שקט');
+select public.test_login('00000000-0000-0000-0000-0000000000f1');
+insert into public.bills (household_id, name, amount_type, amount, frequency, next_due_date, paid_by_default, auto_create)
+values (:'admin_hid', 'מנוי', 'fixed', 50, 'monthly', current_date + 10, '00000000-0000-0000-0000-0000000000f4', true);
+insert into public.chores (household_id, title, assignment, assignee_id)
+values (:'admin_hid', 'כלים', 'fixed', '00000000-0000-0000-0000-0000000000f4');
+reset role;
+
+select format('%s/%s/%s/%s',
+  (select count(*) from public.expenses where household_id = :'hid'),
+  (select count(*) from public.bills where household_id = :'hid'),
+  (select count(*) from public.chores where household_id = :'hid'),
+  (select count(*) from public.list_items where household_id = :'hid')
+) as hid_counts \gset
+select set_config('test.admin_hid', :'admin_hid', false), set_config('test.admin_code', :'admin_code', false),
+  set_config('test.hid_counts', :'hid_counts', false);
+
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000f1');
+do $$
+declare
+  admin_hid uuid := current_setting('test.admin_hid')::uuid;
+  quiet uuid := '00000000-0000-0000-0000-0000000000f4';
+  h record;
+begin
+  select * into h from public.admin_list_households() where id = current_setting('test.hid')::uuid;
+  assert format('%s/%s/%s/%s', h.expense_count, h.bill_count, h.chore_count, h.list_item_count)
+    = current_setting('test.hid_counts'), format('counts wrong: %s', to_jsonb(h));
+  assert h.expense_count > 0 and h.bill_count > 0 and h.chore_count > 0 and h.list_item_count > 0, 'nothing to count';
+  assert jsonb_array_length(h.members) = 2, 'members missing';
+  assert h.members -> 0 ->> 'email' = 'michael@example.com', format('member email wrong: %s', h.members);
+  assert not (h.members -> 0 ->> 'is_placeholder')::boolean, 'is_placeholder wrong';
+  begin
+    perform public.admin_delete_household(admin_hid);
+    raise exception 'own household deleted';
+  exception when others then
+    if sqlerrm <> 'cannot delete your own household' then raise; end if;
+  end;
+  begin
+    perform public.admin_delete_household(gen_random_uuid());
+    raise exception 'missing household deleted';
+  exception when others then
+    if sqlerrm <> 'not found' then raise; end if;
+  end;
+
+  -- 4. Removing a member with no history deletes the row.
+  begin
+    perform public.admin_remove_member(admin_hid, auth.uid());
+    raise exception 'admin removed themselves';
+  exception when others then
+    if sqlerrm <> 'cannot remove yourself' then raise; end if;
+  end;
+  assert (select default_share_pct from public.household_members where household_id = admin_hid and user_id = auth.uid()) = 50,
+    'join did not split the shares';
+  perform public.admin_remove_member(admin_hid, quiet);
+  assert not exists (select 1 from public.household_members where household_id = admin_hid and user_id = quiet),
+    'member row kept';
+  assert (select default_share_pct from public.household_members where household_id = admin_hid and user_id = auth.uid()) = 100,
+    'shares not rebalanced';
+  assert (select invite_code from public.households where id = admin_hid) <> current_setting('test.admin_code'),
+    'invite code not regenerated';
+  assert (select paid_by_default is null and not auto_create from public.bills where household_id = admin_hid),
+    'bill still names the removed member';
+  assert (select assignee_id is null from public.chores where household_id = admin_hid), 'chore still assigned';
+  begin
+    perform public.admin_remove_member(admin_hid, quiet);
+    raise exception 'member removed twice';
+  exception when others then
+    if sqlerrm <> 'not found' then raise; end if;
+  end;
+end;
+$$;
+
+select public.test_login('00000000-0000-0000-0000-0000000000f4');
+do $$
+begin
+  assert (select count(*) from public.households) = 0, 'removed member still sees the household';
+end;
+$$;
+reset role;
+
+-- 5. Removing a member with history: a placeholder keeps the name and balance.
+select balance as b_balance from public.member_balances where user_id = '00000000-0000-0000-0000-00000000000b' \gset
+select invite_code as hid_code from public.households where id = :'hid' \gset
+select set_config('test.b_balance', :'b_balance', false), set_config('test.hid_code', :'hid_code', false);
+
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000f1');
+do $$
+declare
+  hid uuid := current_setting('test.hid')::uuid;
+  ph jsonb;
+begin
+  perform public.admin_remove_member(hid, '00000000-0000-0000-0000-00000000000b');
+  select m.value into ph
+  from public.admin_list_households() h, jsonb_array_elements(h.members) as m(value)
+  where h.id = hid and m.value ->> 'display_name' = 'שירן';
+  assert ph is not null, 'member row gone';
+  assert (ph ->> 'is_placeholder')::boolean and ph ->> 'email' is null, format('not a placeholder: %s', ph);
+  assert ph ->> 'user_id' <> '00000000-0000-0000-0000-00000000000b', 'placeholder kept the old id';
+  perform set_config('test.b_placeholder', ph ->> 'user_id', false);
+  begin
+    perform public.admin_remove_member(hid, (ph ->> 'user_id')::uuid);
+    raise exception 'placeholder with history removed';
+  exception when others then
+    if sqlerrm <> 'placeholder has history' then raise; end if;
+  end;
+end;
+$$;
+reset role;
+
+do $$
+declare
+  hid uuid := current_setting('test.hid')::uuid;
+begin
+  assert (select balance from public.member_balances where user_id = current_setting('test.b_placeholder')::uuid)
+    = current_setting('test.b_balance')::numeric, 'balance changed';
+  assert not exists (select 1 from public.expense_shares where user_id = '00000000-0000-0000-0000-00000000000b'),
+    'shares left on the old id';
+  assert not exists (select 1 from public.settlements where '00000000-0000-0000-0000-00000000000b' in (from_user, to_user)),
+    'transfers left on the old id';
+  assert (select count(*) from public.household_members where household_id = hid) = 2, 'member count changed';
+  assert (select invite_code from public.households where id = hid) <> current_setting('test.hid_code'),
+    'invite code not regenerated';
+end;
+$$;
+
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-00000000000b');
+do $$
+begin
+  assert (select count(*) from public.households) = 0, 'removed member still sees the household';
+  assert (select count(*) from public.expenses) = 0, 'removed member still sees expenses';
+end;
+$$;
+
+-- 6. Deleting an account.
+select public.test_login('00000000-0000-0000-0000-0000000000f3');
+select id as loner_hid from public.create_household('בית בודד', 'בודד') \gset
+insert into public.list_items (list_id, household_id, name)
+select id, household_id, 'חלב' from public.shopping_lists where household_id = :'loner_hid';
+select set_config('test.loner_hid', :'loner_hid', false);
+
+select public.test_login('00000000-0000-0000-0000-0000000000f1');
+do $$
+declare
+  loner uuid := '00000000-0000-0000-0000-0000000000f3';
+  loner_hid uuid := current_setting('test.loner_hid')::uuid;
+begin
+  begin
+    perform public.admin_delete_user(auth.uid());
+    raise exception 'own account deleted';
+  exception when others then
+    if sqlerrm <> 'cannot delete your own account' then raise; end if;
+  end;
+  begin
+    perform public.admin_delete_user('00000000-0000-0000-0000-0000000000f2');
+    raise exception 'admin account deleted';
+  exception when others then
+    if sqlerrm <> 'cannot delete an admin' then raise; end if;
+  end;
+  begin
+    perform public.admin_delete_user(gen_random_uuid());
+    raise exception 'missing account deleted';
+  exception when others then
+    if sqlerrm <> 'not found' then raise; end if;
+  end;
+  assert (
+    select is_admin and full_name = 'Boss' and household_names = array['בית המנהל'] and last_sign_in_at is not null
+    from public.admin_list_users() where id = auth.uid()
+  ), 'admin_list_users: admin row wrong';
+  assert (
+    select not is_admin and not on_allowlist and household_names = array['בית בודד']
+    from public.admin_list_users() where id = loner
+  ), 'admin_list_users: user row wrong';
+
+  perform public.admin_delete_user(loner);
+  assert not exists (select 1 from public.admin_list_users() where id = loner), 'deleted account still listed';
+  assert (select members = '[]'::jsonb and list_item_count = 1 from public.admin_list_households() where id = loner_hid),
+    'household of the deleted account wrong';
+end;
+$$;
+reset role;
+
+do $$
+begin
+  assert not exists (select 1 from auth.users where id = '00000000-0000-0000-0000-0000000000f3'), 'auth.users row kept';
+  assert (select added_by from public.list_items where household_id = current_setting('test.loner_hid')::uuid) is null,
+    'added_by still names the deleted account';
+end;
+$$;
+
+-- 7. Deleting in the Supabase dashboard (Supabase Auth's role, and the
+-- superuser) goes through the same trigger: members with history become
+-- placeholders.
+grant select, delete on auth.users to supabase_auth_admin;
+set role supabase_auth_admin;
+delete from auth.users where id = '00000000-0000-0000-0000-00000000000e';
+reset role;
+delete from auth.users where id = '00000000-0000-0000-0000-00000000000d';
+
+do $$
+declare
+  hid2 uuid := current_setting('test.hid2')::uuid;
+begin
+  assert (select count(*) from public.household_members where household_id = hid2 and is_placeholder) = 2,
+    'deleted accounts did not become placeholders';
+  assert not exists (
+    select 1 from public.household_members
+    where user_id in ('00000000-0000-0000-0000-00000000000d', '00000000-0000-0000-0000-00000000000e')
+  ), 'member rows kept the deleted ids';
+  assert (
+    select b.balance from public.member_balances b
+    join public.household_members m using (household_id, user_id)
+    where m.household_id = hid2 and m.display_name = 'אבי כהן'
+  ) = 30, 'balance changed by the deletion';
+  assert (select sum(balance) from public.member_balances where household_id = hid2) = 0, 'balances do not add up';
+end;
+$$;
+
+-- 8. Deleting a household removes everything under it.
+insert into public.product_links (household_id, normalized_name, barcode) values (:'hid', 'חלב', '7290000000001');
+
+create or replace function pg_temp.household_rows(hid uuid)
+returns table (table_name text, n bigint)
+language plpgsql
+as $$
+declare
+  r record;
+begin
+  for r in
+    select c.table_name as t
+    from information_schema.columns c
+    join information_schema.tables t on t.table_schema = c.table_schema and t.table_name = c.table_name
+    where c.table_schema = 'public' and c.column_name = 'household_id' and t.table_type = 'BASE TABLE'
+    order by 1
+  loop
+    table_name := r.t;
+    execute format('select count(*) from public.%I where household_id = $1', r.t) into n using hid;
+    return next;
+  end loop;
+end;
+$$;
+
+do $$
+begin
+  assert (select count(*) from pg_temp.household_rows(current_setting('test.hid')::uuid)) >= 13, 'tables missing';
+  assert not exists (select 1 from pg_temp.household_rows(current_setting('test.hid')::uuid) where n = 0), format(
+    'add rows for the cascade check: %s',
+    (select string_agg(table_name, ', ') from pg_temp.household_rows(current_setting('test.hid')::uuid) where n = 0)
+  );
+end;
+$$;
+
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000f1');
+select public.admin_delete_household(:'hid');
+reset role;
+
+do $$
+begin
+  assert not exists (select 1 from public.households where id = current_setting('test.hid')::uuid), 'household kept';
+  assert not exists (select 1 from pg_temp.household_rows(current_setting('test.hid')::uuid) where n > 0), format(
+    'rows left after deleting the household: %s',
+    (select string_agg(table_name, ', ') from pg_temp.household_rows(current_setting('test.hid')::uuid) where n > 0)
+  );
+end;
+$$;
+
+-- 9. The schema rules the admin screen relies on.
+do $$
+begin
+  assert not exists (
+    select 1 from pg_constraint where contype = 'f' and confrelid = 'public.households'::regclass and confdeltype <> 'c'
+  ), format('FKs to households without on delete cascade: %s', (
+    select string_agg(conrelid::regclass || '.' || conname, ', ') from pg_constraint
+    where contype = 'f' and confrelid = 'public.households'::regclass and confdeltype <> 'c'
+  ));
+  assert not exists (
+    select 1 from pg_constraint where contype = 'f' and confrelid = 'auth.users'::regclass and confdeltype not in ('c', 'n')
+  ), format('FKs to auth.users that would block deleting an account: %s', (
+    select string_agg(conrelid::regclass || '.' || conname, ', ') from pg_constraint
+    where contype = 'f' and confrelid = 'auth.users'::regclass and confdeltype not in ('c', 'n')
+  ));
+end;
+$$;
+
 \echo 'All database tests passed'

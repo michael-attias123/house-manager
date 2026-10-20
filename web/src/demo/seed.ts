@@ -5,9 +5,14 @@ import type { Db, Row } from './store'
 
 export const MICHAEL = '11111111-1111-4111-8111-111111111111'
 export const YAHALI = '22222222-2222-4222-8222-222222222222'
+/** A third account, in another household; only the admin screen shows it. */
+export const TAL = '33333333-3333-4333-8333-333333333333'
 export const HOUSEHOLD = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+export const TEST_HOUSEHOLD = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const LIST = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const TEST_LIST = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
+/** Whose phone the demo banner can switch to. מיכאל is an admin, יהלי is not. */
 export const DEMO_USERS = [
   { id: MICHAEL, email: 'michael@demo', name: 'מיכאל' },
   { id: YAHALI, email: 'yahali@demo', name: 'יהלי' },
@@ -28,12 +33,20 @@ export function createSeed(now: Date = new Date()): Db {
   }
 
   const db: Db = {
-    households: [{ id: HOUSEHOLD, name: 'הבית שלנו', invite_code: 'K7M2QX', created_at: at(daysAgo(200)) }],
+    households: [
+      { id: HOUSEHOLD, name: 'הבית שלנו', invite_code: 'K7M2QX', created_at: at(daysAgo(200)) },
+      // Someone who tried the app; the admin screen can remove it.
+      { id: TEST_HOUSEHOLD, name: 'דירת ניסיון', invite_code: 'T3ST9P', created_at: at(daysAgo(12)) },
+    ],
     household_members: [
       { household_id: HOUSEHOLD, user_id: MICHAEL, display_name: 'מיכאל', color: '#0ea5e9', default_share_pct: 50, joined_at: at(daysAgo(200)) },
       { household_id: HOUSEHOLD, user_id: YAHALI, display_name: 'יהלי', color: '#f43f5e', default_share_pct: 50, joined_at: at(daysAgo(199)) },
+      { household_id: TEST_HOUSEHOLD, user_id: TAL, display_name: 'טל', color: '#8b5cf6', default_share_pct: 100, joined_at: at(daysAgo(12)) },
     ],
-    shopping_lists: [{ id: LIST, household_id: HOUSEHOLD, name: 'קניות', is_default: true, created_at: at(daysAgo(200)) }],
+    shopping_lists: [
+      { id: LIST, household_id: HOUSEHOLD, name: 'קניות', is_default: true, created_at: at(daysAgo(200)) },
+      { id: TEST_LIST, household_id: TEST_HOUSEHOLD, name: 'קניות', is_default: true, created_at: at(daysAgo(12)) },
+    ],
     list_items: [],
     shopping_trips: [],
     purchases: [],
@@ -55,8 +68,20 @@ export function createSeed(now: Date = new Date()): Db {
     products: [],
     prices: [],
     price_history: [],
-    ingest_runs: [{ id: 1, started_at: at(today, '06:17'), finished_at: at(today, '06:21'), status: 'ok', stats: {} }],
+    ingest_runs: [],
     product_links: [],
+    // Stand-ins for auth.users and the admin tables (20261021000300_admin.sql).
+    auth_users: [
+      { id: MICHAEL, email: 'michael@demo', raw_user_meta_data: { full_name: 'מיכאל' }, created_at: at(daysAgo(200)), last_sign_in_at: at(today, '08:05') },
+      { id: YAHALI, email: 'yahali@demo', raw_user_meta_data: { full_name: 'יהלי' }, created_at: at(daysAgo(199)), last_sign_in_at: at(daysAgo(1), '21:40') },
+      { id: TAL, email: 'tal@demo', raw_user_meta_data: { full_name: 'טל' }, created_at: at(daysAgo(12)), last_sign_in_at: at(daysAgo(12), '19:02') },
+    ],
+    app_admins: [{ user_id: MICHAEL, added_at: at(daysAgo(200)) }],
+    // Added after טל signed up, so that account is not on the list.
+    allowed_emails: [
+      { email: 'michael@demo', note: null, added_at: at(daysAgo(5)) },
+      { email: 'yahali@demo', note: 'יהלי', added_at: at(daysAgo(5)) },
+    ],
   }
 
   // Shopping list
@@ -268,5 +293,37 @@ export function createSeed(now: Date = new Date()): Db {
     id: id(), household_id: HOUSEHOLD, trip_id: null, name: 'שמן זית', normalized_name: 'שמן זית', category: 'pantry',
     barcode: '7290000000080', quantity: 1, unit: null, purchased_at: at(daysAgo(80)),
   })
+
+  // The daily price updates, with stats shaped like house_ingest writes them:
+  // {chain: {stores: {code: {name, file, items, ...} | {name, error}}}}.
+  const chainCode = Object.fromEntries(db.chains.map((c) => [c.id, c.chain_code]))
+  const runStats = (day: string, withoutFile: string[] = []) => {
+    const stats: Row = {}
+    for (const [, chain, code, name] of stores) {
+      stats[chain] ??= { stores: {} }
+      stats[chain].stores[code] = withoutFile.includes(code)
+        ? { name, error: 'no PriceFull file' }
+        : {
+            name, file: `PriceFull${chainCode[chain]}-${code.padStart(3, '0')}-${day.replace(/-/g, '')}0600.xml`,
+            items: 3800 + ((Number(code) * 131) % 2400), products_written: 12 + (Number(code) % 40),
+            prices_written: 150 + ((Number(code) * 17) % 300), prices_removed: Number(code) % 7,
+          }
+    }
+    return stats
+  }
+  db.ingest_runs.push(
+    { id: 1, started_at: at(daysAgo(2), '06:17'), finished_at: at(daysAgo(2), '06:23'), status: 'ok', stats: runStats(daysAgo(2)) },
+    { id: 2, started_at: at(daysAgo(1), '06:17'), finished_at: at(daysAgo(1), '06:22'), status: 'partial', stats: runStats(daysAgo(1), ['277']) },
+    { id: 3, started_at: at(today, '06:17'), finished_at: at(today, '06:21'), status: 'ok', stats: runStats(today) },
+  )
+
+  // דירת ניסיון: two items on טל's list, nothing else.
+  for (const [name, category] of [['חלב', 'dairy'], ['לחם', 'bakery']]) {
+    db.list_items.push({
+      id: id(), list_id: TEST_LIST, household_id: TEST_HOUSEHOLD, name, quantity: 1, unit: null, category, note: null,
+      barcode: null, checked: false, checked_by: null, checked_at: null, added_by: TAL,
+      created_at: at(daysAgo(11)), updated_at: at(daysAgo(11)),
+    })
+  }
   return db
 }

@@ -1,5 +1,5 @@
 import { demoClient } from './client'
-import { HOUSEHOLD, MICHAEL, YAHALI } from './seed'
+import { HOUSEHOLD, MICHAEL, TAL, TEST_HOUSEHOLD, YAHALI } from './seed'
 import { db } from './store'
 
 const list = () => db.shopping_lists[0].id
@@ -88,5 +88,66 @@ describe('demo client', () => {
     const eggs = rows.filter((m) => m.item_id === 'eggs')
     expect(eggs.length).toBeGreaterThan(0)
     expect(eggs.some((m) => /סלט|קוצץ/.test(m.product_name))).toBe(false)
+  })
+})
+
+describe('demo admin', () => {
+  type Member = { user_id: string; display_name: string; is_placeholder: boolean; email: string | null }
+  const households = async () => (await demoClient.rpc('admin_list_households')).data as { id: string; members: Member[] }[]
+  const rpcError = async (name: string, args: Record<string, unknown>) => (await demoClient.rpc(name, args)).error?.message
+
+  it('knows מיכאל is an admin, and keeps the admin tables away from the client', async () => {
+    expect((await demoClient.rpc('is_admin')).data).toBe(true)
+    expect((await demoClient.from('app_admins').select('*')).error?.message).toMatch('permission denied')
+    expect((await demoClient.from('allowed_emails').select('*')).error?.message).toMatch('permission denied')
+  })
+
+  it('guards the allowlist like the server', async () => {
+    expect(await rpcError('admin_remove_allowed_email', { p_email: ' Michael@demo ' })).toBe('cannot remove your own email')
+    expect(await rpcError('admin_add_allowed_email', { p_email: 'nope' })).toBe('invalid email')
+    const added = await demoClient.rpc('admin_add_allowed_email', { p_email: ' Friend@Example.com ', p_note: 'חבר' })
+    expect((added.data as { email: string }).email).toBe('friend@example.com')
+    expect(await rpcError('admin_remove_allowed_email', { p_email: 'friend@example.com' })).toBeUndefined()
+    expect(await rpcError('admin_remove_allowed_email', { p_email: 'friend@example.com' })).toBe('not found')
+  })
+
+  it('deletes טל: out of the household, list items kept without an author', async () => {
+    expect(await rpcError('admin_delete_user', { p_user_id: MICHAEL })).toBe('cannot delete your own account')
+    expect(await rpcError('admin_delete_user', { p_user_id: TAL })).toBeUndefined()
+    const users = (await demoClient.rpc('admin_list_users')).data as { id: string }[]
+    expect(users.map((u) => u.id)).not.toContain(TAL)
+    expect((await households()).find((h) => h.id === TEST_HOUSEHOLD)?.members).toEqual([])
+    const items = db.list_items.filter((i) => i.household_id === TEST_HOUSEHOLD)
+    expect(items).toHaveLength(2)
+    expect(items.every((i) => i.added_by === null)).toBe(true)
+  })
+
+  it('deletes "דירת ניסיון" with every row that belongs to it', async () => {
+    expect(await rpcError('admin_delete_household', { p_household_id: HOUSEHOLD })).toBe('cannot delete your own household')
+    expect(await rpcError('admin_delete_household', { p_household_id: TEST_HOUSEHOLD })).toBeUndefined()
+    expect(db.households.map((h) => h.id)).toEqual([HOUSEHOLD])
+    for (const [table, rows] of Object.entries(db)) {
+      expect(rows.filter((r) => r.household_id === TEST_HOUSEHOLD), table).toEqual([])
+    }
+    expect(db.shopping_lists.filter((l) => l.household_id === HOUSEHOLD)).toHaveLength(1)
+  })
+
+  it('turns a member with history into a placeholder with the same balance', async () => {
+    const balance = async (userId: string) =>
+      ((await demoClient.from('member_balances').select('user_id, balance').eq('user_id', userId)).data as { balance: number }[])[0]
+        ?.balance
+    const before = await balance(YAHALI)
+    const code = db.households[0].invite_code
+    expect(await rpcError('admin_remove_member', { p_household_id: HOUSEHOLD, p_user_id: MICHAEL })).toBe('cannot remove yourself')
+    expect(await rpcError('admin_remove_member', { p_household_id: HOUSEHOLD, p_user_id: YAHALI })).toBeUndefined()
+    const placeholder = (await households())[0].members.find((m) => m.display_name === 'יהלי')!
+    expect(placeholder).toMatchObject({ is_placeholder: true, email: null })
+    expect(placeholder.user_id).not.toBe(YAHALI)
+    expect(await balance(placeholder.user_id)).toBeCloseTo(before)
+    expect(await balance(YAHALI)).toBeUndefined()
+    expect(db.households[0].invite_code).not.toBe(code)
+    expect(await rpcError('admin_remove_member', { p_household_id: HOUSEHOLD, p_user_id: placeholder.user_id })).toBe(
+      'placeholder has history',
+    )
   })
 })

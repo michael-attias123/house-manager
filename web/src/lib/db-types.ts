@@ -232,3 +232,43 @@ export interface IngestRun {
   status: 'running' | 'ok' | 'partial' | 'failed'
   stats: Record<string, unknown>
 }
+
+/** public.allowed_emails: who may create an account (admin screen only). */
+export interface AllowedEmail {
+  email: string
+  note: string | null
+  added_at: string
+}
+
+/** A member as admin_list_households() returns it. */
+export interface AdminHouseholdMember {
+  user_id: string
+  display_name: string
+  is_placeholder: boolean
+  /** null for a placeholder, or when the account was deleted. */
+  email: string | null
+}
+
+/** A row of admin_list_households(). */
+export interface AdminHousehold {
+  id: string
+  name: string
+  created_at: string
+  members: AdminHouseholdMember[]
+  expense_count: number
+  bill_count: number
+  chore_count: number
+  list_item_count: number
+}
+
+/** A row of admin_list_users(). */
+export interface AdminUser {
+  id: string
+  email: string | null
+  full_name: string | null
+  created_at: string | null
+  last_sign_in_at: string | null
+  is_admin: boolean
+  on_allowlist: boolean
+  household_names: string[]
+}

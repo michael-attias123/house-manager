@@ -17,4 +17,11 @@ describe('feature registry', () => {
     expect(dashboardWidgets()[0].id).toBe('insights')
     expect(featureForPath('/bills')?.id).toBe('bills')
   })
+
+  it('keeps the admin screen out of the navigation (reached from Settings)', () => {
+    expect(primaryNav().map((n) => n.key)).not.toContain('admin')
+    expect(primaryNav().flatMap((n) => n.paths)).not.toContain('/admin')
+    expect(moreFeatures().map((f) => f.id)).not.toContain('admin')
+    expect(featureForPath('/admin')?.SettingsSection).toBeDefined()
+  })
 })
