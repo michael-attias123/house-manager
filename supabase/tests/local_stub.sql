@@ -31,6 +31,11 @@ create table if not exists auth.users (
   created_at timestamptz not null default now()
 );
 
+-- Columns the admin screen reads (admin_list_users).
+alter table auth.users
+  add column if not exists last_sign_in_at timestamptz,
+  add column if not exists raw_user_meta_data jsonb not null default '{}';
+
 create or replace function auth.uid()
 returns uuid
 language sql
