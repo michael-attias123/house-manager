@@ -46,8 +46,10 @@
 
 4. **Authentication → Sign In / Providers → Google**: מפעילים, מדביקים את ה-Client ID וה-Client secret, ושומרים.
 5. **Authentication → URL Configuration**:
-   - **Site URL:** כתובת האתר משלב 2, למשל `https://house-manager.pages.dev`.
-   - **Redirect URLs:** מוסיפים `https://house-manager.pages.dev/**`, `https://*.house-manager.pages.dev/**` (לגרסאות תצוגה מקדימה) ו-`http://localhost:5173/**`.
+   - **Site URL:** הכתובת של האתר שלכם משלב 2, בצורה `https://<your-app>.pages.dev`.
+   - **Redirect URLs:** מוסיפים `https://<your-app>.pages.dev/**`, `https://*.<your-app>.pages.dev/**` (לגרסאות תצוגה מקדימה) ו-`http://localhost:5173/**`.
+
+   > ⚠️ מעתיקים את הכתובת **המדויקת** ש-Cloudflare מציג אחרי הפריסה. אם השם תפוס, Cloudflare מוסיף סיומת (למשל `house-manager-9y8.pages.dev`). כתובת לא נכונה כאן תשלח אתכם אחרי ההתחברות לאתר של מישהו אחר.
 
 > את Site URL אפשר למלא רק אחרי שלב 2, כשיש כתובת לאתר. אפשר לחזור לכאן אחר כך.
 
@@ -163,5 +165,6 @@ pnpm dev                     # http://localhost:5173
   - `redirect_uri_mismatch`: הכתובת ב-Authorized redirect URIs לא זהה ל-`https://<ref>.supabase.co/auth/v1/callback`.
   - "Access blocked" / "app has not completed verification": המייל לא נמצא ברשימת Test users.
   - חוזרים לאתר אבל לא מחוברים: כתובת האתר חסרה ב-Redirect URLs ב-Supabase.
+  - אחרי Google מגיעים לאתר אחר: ה-Site URL או ה-Redirect URLs ב-Supabase לא תואמים לכתובת שלכם. מתקנים לפי שלב 1, ואז נכנסים לאפליקציה ולוחצים **יציאה מהחשבון** בהגדרות. היציאה מבטלת את כל החיבורים הקיימים, כולל זה שנשלח לאתר האחר.
 - **באייפון, האפליקציה המותקנת לא נשארת מחוברת אחרי Google**: נכנסים פעם אחת דרך ספארי, ואז מוסיפים שוב למסך הבית. אם זה עדיין לא עובד, אפשר להוסיף חזרה כניסה עם קוד במייל.
 - **השוואת הסלים ריקה**: בודקים ביומן של **Supermarket prices** אילו רשתות נכשלו. אם חלקן נחסמו, עוברים לסעיף 5.
