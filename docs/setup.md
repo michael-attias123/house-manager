@@ -55,22 +55,28 @@
 
 ## 2. העלאת האתר ל-Cloudflare Pages
 
-1. ב-[dash.cloudflare.com](https://dash.cloudflare.com) בוחרים **Workers & Pages → Create → Pages → Connect to Git**, ומחברים את הריפו `house-manager`.
-2. הגדרות build:
+1. ב-[dash.cloudflare.com](https://dash.cloudflare.com) נכנסים ל-**Workers & Pages** ולוחצים **Create application**.
+2. בוחרים בלשונית **Pages**. ברירת המחדל שנפתחת היא Workers, וקל לפספס. אם הלשונית לא מופיעה, יש בתחתית הדף קישור "Looking to deploy Pages? Get started".
+3. בוחרים **Connect to Git** (או **Import an existing Git repository**), מחברים את GitHub, בוחרים את הריפו `house-manager` ולוחצים **Begin setup**.
+4. נפתח המסך **Set up builds and deployments**. ממלאים בו:
    | שדה | ערך |
    |---|---|
    | Production branch | `main` |
    | Framework preset | `None` |
-   | Root directory | `web` |
    | Build command | `pnpm build` |
    | Build output directory | `dist` |
-3. ב-**Environment variables** מוסיפים:
+   | Root directory | `web`. השדה מוסתר: פותחים את **Root directory (advanced)** |
+5. באותו מסך, פותחים את **Environment variables (advanced)** ומוסיפים:
    | משתנה | ערך |
    |---|---|
    | `VITE_SUPABASE_URL` | ה-Project URL |
    | `VITE_SUPABASE_PUBLISHABLE_KEY` | ה-Publishable key |
    | `NODE_VERSION` | `22` |
-4. לוחצים **Save and Deploy**. מעכשיו כל merge ל-`main` מעלה גרסה חדשה, וכל PR מקבל כתובת תצוגה מקדימה משלו.
+6. לוחצים **Save and Deploy**. מעכשיו כל merge ל-`main` מעלה גרסה חדשה, וכל PR מקבל כתובת תצוגה מקדימה משלו.
+
+**אם הפרויקט כבר נוצר:** בדף הפרויקט, **Settings → Build** להגדרות ה-build, ו-**Settings → Variables and Secrets** למשתנים. אחרי שינוי נכנסים ל-**Deployments** ולוחצים **Retry deployment** על הפריסה האחרונה, כי משתנים חדשים נכנסים רק בבנייה הבאה.
+
+**אם בטעות נוצר Worker ולא Pages:** בדף של Worker אין את השדות האלה. הכי פשוט למחוק אותו ולהתחיל שוב משלב 2.
 
 > מעדיפים Vercel או Netlify? גם הם חינמיים, וההגדרות זהות: תיקייה `web`, פקודה `pnpm build`, תוצר `dist`, ואותם משתני סביבה.
 
