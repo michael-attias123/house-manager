@@ -130,6 +130,10 @@ def load_store_prices(conn: psycopg.Connection, store_id: int, prices: list[Pric
 def cleanup(conn: psycopg.Connection) -> None:
     with conn.cursor() as cur:
         cur.execute("delete from public.price_history where changed_on < current_date - 180")
+        # Branches no longer selected keep their row (old trips point at it) but not their prices.
+        cur.execute(
+            "delete from public.prices where store_id in (select id from public.stores where not active)"
+        )
         cur.execute(
             """
             delete from public.products p

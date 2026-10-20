@@ -103,3 +103,19 @@ def test_price_regex_accepts_subchain_split_time_and_any_case():
     assert stores.search(f"Stores7290027600007-000-{today}-020.gz")
     assert stores.search(f"Stores7290058140886-000-{today}-050500.xml")
     assert stores.search(f"Stores7290058140886-000-{today}0500.xml")
+
+
+def test_store_selection_skips_drugstores_and_warehouses():
+    from house_ingest.__main__ import select_stores
+    from house_ingest.parse import StoreRecord
+
+    stores = [
+        StoreRecord("298", "BE אמות באר שבע", "באר שבע", None),
+        StoreRecord("716", "Be mall 7  באר שבע", "באר שבע", None),
+        StoreRecord("515", "ליקוט טיב באר שבע", "באר שבע", None),
+        StoreRecord("413", "שופרסל דיל באר שבע", "באר שבע", None),
+        StoreRecord("12", "Beit Shemesh Deal", "בית שמש", None),
+        StoreRecord("90", "Beer Market", "באר שבע", None),
+    ]
+    chain = CONFIG.chain("shufersal")
+    assert [s.store_code for s in select_stores(chain, stores, CONFIG)] == ["90", "413"]

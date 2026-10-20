@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import os
 import sys
 import tempfile
@@ -26,7 +27,12 @@ def select_stores(chain: ChainConfig, stores: list[StoreRecord], config: Config)
     if chain.stores:
         pinned = set(chain.stores)
         return [s for s in stores if s.store_code in pinned]
-    local = [s for s in stores if in_city(s, config.city_names, config.city_codes)]
+    excluded = [re.compile(p, re.IGNORECASE) for p in config.exclude_store_names]
+    local = [
+        s
+        for s in stores
+        if in_city(s, config.city_names, config.city_codes) and not any(p.search(s.name) for p in excluded)
+    ]
     return sorted(local, key=lambda s: s.name)[: config.max_stores_per_chain]
 
 
