@@ -1,0 +1,38 @@
+name: Price probe
+
+# Read-only: prints what the catalogue holds for some item names, to check
+# why the basket comparison matched what it did. Run it from the Actions tab.
+on:
+  workflow_dispatch:
+    inputs:
+      terms:
+        description: 'Item names, comma separated (empty = the list below)'
+        required: false
+        default: ''
+  # Also whenever the probe itself changes, so it can be tried from a branch.
+  push:
+    paths: ['scripts/price-probe.sql', '.github/workflows/price-probe.yml']
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      TERMS: ${{ inputs.terms }}
+      DEFAULT_TERMS: >-
+        ביצים,חלב,לחם,עגבניות,מלפפונים,בצל,תפוחי אדמה,גזר,בננה,תפוחים,קוטג,גבינה צהובה,
+        גבינה לבנה,שמנת,יוגורט,חמאה,אורז,פסטה,סוכר,קמח,שמן,מלח,קפה,תה,טחינה,חומוס,טונה,
+        פתיתים,קורנפלקס,נייר טואלט,מגבות נייר,סבון כלים,אבקת כביסה,חזה עוף,שניצל,בשר טחון,
+        מים מינרלים,קולה,במבה,פיתות
+    steps:
+      - name: Skip until Supabase is connected
+        if: env.SUPABASE_DB_URL == ''
+        run: echo "::notice::Add the SUPABASE_DB_URL secret first (see docs/setup.md)."
+      - uses: actions/checkout@v5
+        if: env.SUPABASE_DB_URL != ''
+      - if: env.SUPABASE_DB_URL != ''
+        run: |
+          url="$(printf %s "$SUPABASE_DB_URL" | tr -d '\r\n')"
+          terms="$(printf %s "${TERMS:-$DEFAULT_TERMS}" | tr -d '\n' | sed 's/, */,/g')"
+          psql "$url" -v terms="$terms" -f scripts/price-probe.sql
