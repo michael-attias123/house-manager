@@ -192,6 +192,51 @@ export const RPCS: Record<string, (args: Args) => unknown> = {
     return expense.id
   },
 
+  import_expenses: ({ p_household_id, p_expenses, p_settlements }) => {
+    const householdId = String(p_household_id)
+    requireMember(householdId)
+    const ids = new Set(members(householdId).map((m) => m.user_id))
+    const exists = (rows: Row[], key: unknown) => rows.some((r) => r.household_id === householdId && r.external_id === key)
+    let expenses = 0
+    let settlements = 0
+    let skipped = 0
+    // Validate everything first, so a bad row imports nothing (like the SQL transaction).
+    for (const s of (p_settlements as Row[]) ?? []) {
+      if (!ids.has(s.from_user) || !ids.has(s.to_user)) throw new Error('transfer between non-members')
+    }
+    for (const e of (p_expenses as Row[]) ?? []) {
+      const total = Object.values(e.shares as Record<string, number>).reduce((sum, v) => sum + toAgorot(Number(v)), 0)
+      if (total !== toAgorot(Number(e.amount))) throw new Error('shares do not add up to amount')
+    }
+    for (const e of (p_expenses as Row[]) ?? []) {
+      if (exists(db.expenses, e.external_id)) {
+        skipped++
+        continue
+      }
+      const id = RPCS.save_expense({
+        p_household_id: householdId, p_description: e.description, p_amount: e.amount, p_paid_by: e.paid_by,
+        p_shares: e.shares, p_category: e.category, p_expense_date: e.date, p_split_type: e.split_type,
+        p_source: 'import',
+      }) as string
+      db.expenses.find((x) => x.id === id)!.external_id = e.external_id
+      expenses++
+    }
+    for (const s of (p_settlements as Row[]) ?? []) {
+      if (exists(db.settlements, s.external_id)) {
+        skipped++
+        continue
+      }
+      db.settlements.push(
+        withDefaults('settlements', {
+          household_id: householdId, from_user: s.from_user, to_user: s.to_user, amount: Number(s.amount),
+          settled_on: s.date, note: s.note?.trim() || null, external_id: s.external_id,
+        }),
+      )
+      settlements++
+    }
+    return { expenses, settlements, skipped }
+  },
+
   pay_bill: ({ p_bill_id, p_amount, p_paid_by, p_paid_on }) => {
     const bill = db.bills.find((b) => b.id === p_bill_id)
     if (!bill) throw new Error('bill not found')

@@ -26,5 +26,7 @@ export interface FeatureDefinition {
   nav?: FeatureNav
   /** Card shown on the home dashboard. */
   Widget?: ComponentType
+  /** Extra section at the bottom of the settings page (rarely used tools). */
+  SettingsSection?: ComponentType
   widgetOrder?: number
 }

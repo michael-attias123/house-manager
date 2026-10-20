@@ -22,6 +22,9 @@ class Config:
     city_codes: list[str]
     max_stores_per_chain: int
     chains: list[ChainConfig]
+    # Case-insensitive regexes on the store name, for branches that are not
+    # supermarkets (drugstores, online-order warehouses).
+    exclude_store_names: list[str] = field(default_factory=list)
 
     def chain(self, chain_id: str) -> ChainConfig:
         return next(c for c in self.chains if c.id == chain_id)
@@ -32,7 +35,8 @@ def load_config(path: Path = DEFAULT_CONFIG) -> Config:
     return Config(
         city_names=raw["city"]["names"],
         city_codes=[str(c) for c in raw["city"].get("codes", [])],
-        max_stores_per_chain=int(raw.get("max_stores_per_chain", 4)),
+        max_stores_per_chain=int(raw.get("max_stores_per_chain", 6)),
+        exclude_store_names=list(raw.get("exclude_store_names", [])),
         chains=[
             ChainConfig(
                 id=c["id"],

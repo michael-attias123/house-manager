@@ -235,4 +235,70 @@ end;
 $$;
 
 reset role;
+
+-- Importing from Splitwise --------------------------------------------------------
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-00000000000a');
+select balance as before_import from public.member_balances
+where user_id = '00000000-0000-0000-0000-00000000000a' \gset
+
+select public.import_expenses(
+  :'hid',
+  '[{"external_id": "splitwise|1", "date": "2026-08-25", "description": "שכר דירה", "amount": 1900,
+     "paid_by": "00000000-0000-0000-0000-00000000000a", "split_type": "equal", "category": "rent",
+     "shares": {"00000000-0000-0000-0000-00000000000a": 950, "00000000-0000-0000-0000-00000000000b": 950}}]',
+  '[{"external_id": "splitwise|2", "date": "2026-09-29", "note": "החזר", "amount": 700,
+     "from_user": "00000000-0000-0000-0000-00000000000b", "to_user": "00000000-0000-0000-0000-00000000000a"}]'
+) as first_import \gset
+
+select public.import_expenses(
+  :'hid',
+  '[{"external_id": "splitwise|1", "date": "2026-08-25", "description": "שכר דירה", "amount": 1900,
+     "paid_by": "00000000-0000-0000-0000-00000000000a", "split_type": "equal", "category": "rent",
+     "shares": {"00000000-0000-0000-0000-00000000000a": 950, "00000000-0000-0000-0000-00000000000b": 950}}]',
+  '[{"external_id": "splitwise|2", "date": "2026-09-29", "note": "החזר", "amount": 700,
+     "from_user": "00000000-0000-0000-0000-00000000000b", "to_user": "00000000-0000-0000-0000-00000000000a"}]'
+) as second_import \gset
+
+select set_config('test.first', :'first_import', false), set_config('test.second', :'second_import', false),
+  set_config('test.before', :'before_import', false);
+do $$
+begin
+  assert current_setting('test.first')::jsonb = '{"expenses": 1, "settlements": 1, "skipped": 0}',
+    format('first import: %s', current_setting('test.first'));
+  assert current_setting('test.second')::jsonb = '{"expenses": 0, "settlements": 0, "skipped": 2}',
+    format('second import: %s', current_setting('test.second'));
+  -- +950 owed by the partner for rent, -700 repaid.
+  assert (select balance from public.member_balances where user_id = '00000000-0000-0000-0000-00000000000a')
+    = current_setting('test.before')::numeric + 250, 'import changed the balance wrongly';
+  assert (select source from public.expenses where external_id = 'splitwise|1') = 'import', 'source not import';
+  begin
+    -- Shares that do not add up: nothing at all is imported.
+    perform public.import_expenses(
+      (select id from public.households limit 1),
+      '[{"external_id": "splitwise|9", "date": "2026-08-25", "description": "x", "amount": 10,
+         "paid_by": "00000000-0000-0000-0000-00000000000a", "split_type": "exact",
+         "shares": {"00000000-0000-0000-0000-00000000000a": 1}}]',
+      '[{"external_id": "splitwise|8", "date": "2026-09-29", "amount": 5,
+         "from_user": "00000000-0000-0000-0000-00000000000b", "to_user": "00000000-0000-0000-0000-00000000000a"}]'
+    );
+    raise exception 'bad import accepted';
+  exception when others then
+    if sqlerrm = 'bad import accepted' then raise; end if;
+  end;
+  assert not exists (select 1 from public.settlements where external_id = 'splitwise|8'), 'partial import kept';
+  begin
+    perform public.import_expenses(
+      (select id from public.households limit 1), '[]',
+      '[{"external_id": "splitwise|7", "date": "2026-09-29", "amount": 5,
+         "from_user": "00000000-0000-0000-0000-00000000000c", "to_user": "00000000-0000-0000-0000-00000000000a"}]'
+    );
+    raise exception 'non-member transfer accepted';
+  exception when others then
+    if sqlerrm = 'non-member transfer accepted' then raise; end if;
+  end;
+end;
+$$;
+reset role;
+
 \echo 'All database tests passed'

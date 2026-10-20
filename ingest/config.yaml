@@ -8,8 +8,14 @@ city:
   # CBS locality code, used by chains that publish a code instead of a name.
   codes: ["9000"]
 
-# Upper bound per chain, to stay well inside Supabase's free 500 MB.
-max_stores_per_chain: 4
+# Upper bound per chain, to stay well inside Supabase's free 500 MB
+# (about 10,000 prices per branch).
+max_stores_per_chain: 6
+
+# Branches in the city that are not supermarkets: Shufersal's "Be" drugstores
+# and online-order picking warehouses ("ליקוט"). Case-insensitive regexes on the
+# store name.
+exclude_store_names: ['^be\b', 'ליקוט', 'אונליין', 'online']
 
 chains:
   - id: shufersal

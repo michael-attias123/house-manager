@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import os
 import sys
 import tempfile
@@ -26,7 +27,12 @@ def select_stores(chain: ChainConfig, stores: list[StoreRecord], config: Config)
     if chain.stores:
         pinned = set(chain.stores)
         return [s for s in stores if s.store_code in pinned]
-    local = [s for s in stores if in_city(s, config.city_names, config.city_codes)]
+    excluded = [re.compile(p, re.IGNORECASE) for p in config.exclude_store_names]
+    local = [
+        s
+        for s in stores
+        if in_city(s, config.city_names, config.city_codes) and not any(p.search(s.name) for p in excluded)
+    ]
     return sorted(local, key=lambda s: s.name)[: config.max_stores_per_chain]
 
 
@@ -65,7 +71,9 @@ def cmd_discover(config: Config, chains: list[ChainConfig], work: Path, from_dir
 
 
 def cmd_run(config: Config, chains: list[ChainConfig], work: Path, from_dir: Path | None, dry_run: bool) -> int:
-    db_url = os.environ.get("SUPABASE_DB_URL") or os.environ.get("DATABASE_URL")
+    # Strip: a secret pasted with a trailing newline otherwise becomes part of
+    # the database name ("postgres\n does not exist").
+    db_url = (os.environ.get("SUPABASE_DB_URL") or os.environ.get("DATABASE_URL") or "").strip()
     if not dry_run and not db_url:
         print("SUPABASE_DB_URL is not set; nothing to do. See docs/setup.md.", file=sys.stderr)
         return 0

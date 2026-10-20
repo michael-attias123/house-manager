@@ -90,8 +90,9 @@ export interface Expense {
   expense_date: ISODate
   split_type: SplitType
   note: string | null
-  source: 'manual' | 'trip' | 'bill'
+  source: 'manual' | 'trip' | 'bill' | 'import'
   source_id: string | null
+  external_id?: string | null
   created_at: string
 }
 

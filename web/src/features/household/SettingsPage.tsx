@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Copy, LogOut, RefreshCw, Share2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -7,6 +7,8 @@ import { Card, CardTitle } from '@/components/ui/Card'
 import { Field, Input } from '@/components/ui/Field'
 import { ErrorBox } from '@/components/ui/Feedback'
 import { MemberAvatar } from '@/components/ui/MemberAvatar'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { FEATURES } from '@/app/features'
 import { regenerateInviteCode, renameHousehold, updateMember } from './api'
 import { householdKeys, useHousehold } from './HouseholdProvider'
 
@@ -163,6 +165,12 @@ export function SettingsPage() {
         </Button>
         {save.error && <ErrorBox error={save.error} />}
       </Card>
+
+      {FEATURES.filter((f) => f.SettingsSection).map(({ id, SettingsSection }) => (
+        <ErrorBoundary key={id}>
+          <Suspense fallback={null}>{SettingsSection && <SettingsSection />}</Suspense>
+        </ErrorBoundary>
+      ))}
 
       <Button variant="ghost" className="w-full" onClick={() => supabase.auth.signOut()}>
         <LogOut size={18} />
