@@ -151,3 +151,22 @@ describe('demo admin', () => {
     )
   })
 })
+
+describe('demo notifications', () => {
+  const prefs = async () =>
+    (await demoClient.from('notification_prefs').select('*').eq('user_id', MICHAEL)).data as Record<string, unknown>[]
+
+  it('keeps notification choices, one column at a time, with everything off at first', async () => {
+    expect(await prefs()).toEqual([])
+    expect((await demoClient.from('notification_prefs').upsert({ user_id: MICHAEL, bills: true })).error).toBeNull()
+    expect((await demoClient.from('notification_prefs').upsert({ user_id: MICHAEL, weekly: true })).error).toBeNull()
+    expect(await prefs()).toEqual([
+      expect.objectContaining({ user_id: MICHAEL, bills: true, chores: false, partner: false, weekly: true, admin: false }),
+    ])
+    expect(db.notification_prefs).toHaveLength(1)
+  })
+
+  it('"sends" a test notification without an error', async () => {
+    expect(await demoClient.rpc('send_test_notification')).toEqual({ data: null, error: null })
+  })
+})

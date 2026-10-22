@@ -6,6 +6,7 @@ import { choresFeature } from '@/features/chores'
 import { expensesFeature } from '@/features/expenses'
 import { householdFeature } from '@/features/household'
 import { insightsFeature } from '@/features/insights'
+import { notificationsFeature } from '@/features/notifications'
 import { pricesFeature } from '@/features/prices'
 import { shoppingFeature } from '@/features/shopping'
 import type { FeatureDefinition, NavGroupId } from './types'
@@ -16,6 +17,8 @@ import type { FeatureDefinition, NavGroupId } from './types'
  */
 export const FEATURES: FeatureDefinition[] = [
   shoppingFeature,
+  // Before expenses so its Settings card comes before the Splitwise import.
+  notificationsFeature,
   expensesFeature,
   billsFeature,
   choresFeature,
