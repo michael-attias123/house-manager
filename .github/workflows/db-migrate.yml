@@ -1,10 +1,11 @@
 name: Database migrations
 
-# Applies supabase/migrations to the Supabase project when they change on main.
+# Applies supabase/migrations to the Supabase project when they change on main,
+# then deploys the Edge Functions (supabase/functions).
 on:
   push:
     branches: [main]
-    paths: ['supabase/migrations/**']
+    paths: ['supabase/migrations/**', 'supabase/functions/**']
   workflow_dispatch:
 
 concurrency:
@@ -16,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      # Only for deploying the Edge Function; the CLI reads the token from the env.
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
     steps:
       - name: Skip until Supabase is connected
         if: env.SUPABASE_DB_URL == ''
@@ -29,3 +33,11 @@ jobs:
           version: 2.121.0
       - if: env.SUPABASE_DB_URL != ''
         run: supabase db push --db-url "$SUPABASE_DB_URL" --include-all --yes
+      # The database calls send-push with its own secret header, not a user's
+      # JWT (supabase/config.toml says the same for local runs).
+      - name: Deploy the send-push Edge Function
+        if: env.SUPABASE_DB_URL != '' && env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_PROJECT_REF != ''
+        run: supabase functions deploy send-push --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+      - name: Skip the Edge Function until it can be deployed
+        if: env.SUPABASE_DB_URL != '' && (env.SUPABASE_ACCESS_TOKEN == '' || env.SUPABASE_PROJECT_REF == '')
+        run: echo "::notice::Add the SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF secrets to deploy the send-push function for push notifications (see docs/setup.md)."

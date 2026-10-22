@@ -886,4 +886,501 @@ begin
 end;
 $$;
 
+-- Notifications (20261022000100_notifications.sql) --------------------------------
+-- A fresh couple: נועה (admin) and עידו, plus an outsider without a device.
+-- Expenses, transfers and trips notify at commit (deferred triggers), so
+-- each write below is its own statement and the checks come after it.
+-- Assertions never depend on the time of day: quiet hours are checked with
+-- explicit times, and the pg_net checks use the 'test' kind.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000a1', 'noa@notify.example.com'),
+  ('00000000-0000-0000-0000-0000000000a2', 'ido@notify.example.com'),
+  ('00000000-0000-0000-0000-0000000000a3', 'outsider@notify.example.com');
+insert into public.app_admins (user_id) values ('00000000-0000-0000-0000-0000000000a1');
+
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000a1');
+select id as nhid, invite_code as ncode from public.create_household('בית ההתראות', 'נועה') \gset
+select public.test_login('00000000-0000-0000-0000-0000000000a2');
+select public.join_household(:'ncode', 'עידו');
+select set_config('test.nhid', :'nhid', false);
+
+-- 1. Devices and preferences: own rows only, everything off by default.
+select public.save_push_subscription('https://push.example.com/ido', 'key-ido', 'auth-ido', 'test phone');
+select public.test_login('00000000-0000-0000-0000-0000000000a1');
+select public.save_push_subscription('https://push.example.com/shared', 'key-1', 'auth-1', 'shared tablet');
+select public.save_push_subscription('https://push.example.com/noa', 'key-noa', 'auth-noa', 'test phone');
+-- The shared tablet signs in as עידו: the endpoint moves to him.
+select public.test_login('00000000-0000-0000-0000-0000000000a2');
+select public.save_push_subscription('https://push.example.com/shared', 'key-2', 'auth-2', 'shared tablet');
+insert into public.notification_prefs default values;
+
+do $$
+declare
+  noa uuid := '00000000-0000-0000-0000-0000000000a1';
+  p public.notification_prefs;
+begin
+  select * into p from public.notification_prefs;
+  assert p.user_id = auth.uid() and not (p.bills or p.chores or p.partner or p.weekly or p.admin),
+    format('prefs do not default to off: %s', to_jsonb(p));
+  assert (select array_agg(endpoint order by endpoint) from public.push_subscriptions)
+    = array['https://push.example.com/ido', 'https://push.example.com/shared'], 'endpoint not moved to the caller';
+  assert (select p256dh from public.push_subscriptions where endpoint like '%shared') = 'key-2', 'keys not updated';
+  begin
+    insert into public.notification_prefs (user_id, partner) values (noa, true);
+    raise exception 'prefs written for someone else';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.push_subscriptions (user_id, endpoint, p256dh, auth)
+    values (noa, 'https://push.example.com/fake', 'k', 'a');
+    raise exception 'device added for someone else';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.save_push_subscription('http://insecure.example.com', 'k', 'a');
+    raise exception 'non-https endpoint accepted';
+  exception when others then
+    if sqlerrm <> 'invalid subscription' then raise; end if;
+  end;
+end;
+$$;
+
+select public.test_login('00000000-0000-0000-0000-0000000000a3');
+do $$
+declare
+  c text;
+begin
+  assert (select count(*) from public.push_subscriptions) = 0, 'outsider sees devices';
+  assert (select count(*) from public.notification_prefs) = 0, 'outsider sees prefs';
+  delete from public.push_subscriptions;
+  update public.notification_prefs set partner = true;
+  begin
+    perform 1 from public.notification_outbox;
+    raise exception 'clients can read the outbox';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.notification_outbox (user_id, kind, title, dedup_key) values (auth.uid(), 'test', 'x', 'x');
+    raise exception 'clients can write the outbox';
+  exception when insufficient_privilege then null;
+  end;
+  foreach c in array array[
+    'select public.enqueue_notification(auth.uid(), ''test'', ''x'', ''x'', ''/'', ''x'')',
+    'select public.notify_members(gen_random_uuid(), null, ''test'', ''x'', ''x'', ''/'', ''x'')',
+    'select public.request_push_send()',
+    'select public.queue_scheduled_notifications()',
+    'select public.claim_push_batch(1)',
+    'select public.finish_push_batch(''[]'')'
+  ] loop
+    begin
+      execute c;
+      raise exception 'a client ran: %', c;
+    exception when insufficient_privilege then null;
+    end;
+  end loop;
+  begin
+    perform public.send_test_notification();
+    raise exception 'test notification without a device';
+  exception when others then
+    if sqlerrm <> 'no push subscription' then raise; end if;
+  end;
+end;
+$$;
+reset role;
+
+do $$
+begin
+  assert (select count(*) from public.push_subscriptions) = 3, 'the outsider deleted devices';
+  assert not exists (select 1 from public.notification_prefs where partner), 'the outsider changed prefs';
+end;
+$$;
+
+-- 2. With the pref off, nothing is queued.
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000a1');
+select public.save_expense(
+  :'nhid', 'פיצה', 120, '00000000-0000-0000-0000-0000000000a1',
+  '{"00000000-0000-0000-0000-0000000000a1": 60, "00000000-0000-0000-0000-0000000000a2": 60}'
+);
+reset role;
+do $$
+begin
+  assert (select count(*) from public.notification_outbox) = 0, 'queued with every pref off';
+end;
+$$;
+
+-- 3. Partner actions, with "partner" on for both.
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000a2');
+update public.notification_prefs set partner = true;
+select public.test_login('00000000-0000-0000-0000-0000000000a1');
+-- Upsert as the client does it (only the changed column).
+insert into public.notification_prefs (user_id, partner) values (auth.uid(), true)
+on conflict (user_id) do update set partner = excluded.partner;
+do $$
+begin
+  assert (select array_agg(user_id) from public.notification_prefs) = array[auth.uid()], 'sees the partner''s prefs';
+  assert (select partner and not bills from public.notification_prefs), 'upsert changed other columns';
+end;
+$$;
+
+select public.save_expense(
+  :'nhid', 'סושי', 90.50, '00000000-0000-0000-0000-0000000000a1',
+  '{"00000000-0000-0000-0000-0000000000a1": 45.25, "00000000-0000-0000-0000-0000000000a2": 45.25}'
+) as sushi_id \gset
+-- Only נועה has a share: עידו is not told.
+select public.save_expense(
+  :'nhid', 'בגדים', 300, '00000000-0000-0000-0000-0000000000a1',
+  '{"00000000-0000-0000-0000-0000000000a1": 300}', 'other', current_date, 'full'
+);
+select public.import_expenses(
+  :'nhid',
+  '[{"external_id": "notify|1", "date": "2026-09-01", "description": "חשמל ישן", "amount": 200,
+     "paid_by": "00000000-0000-0000-0000-0000000000a1", "split_type": "equal", "category": "bills",
+     "shares": {"00000000-0000-0000-0000-0000000000a1": 100, "00000000-0000-0000-0000-0000000000a2": 100}}]',
+  '[{"external_id": "notify|2", "date": "2026-09-02", "amount": 50,
+     "from_user": "00000000-0000-0000-0000-0000000000a1", "to_user": "00000000-0000-0000-0000-0000000000a2"}]'
+);
+-- A transfer to עידו notifies him; one to נועה, recorded by her, does not.
+insert into public.settlements (household_id, from_user, to_user, amount, note)
+values (:'nhid', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000a2', 200, 'החזר');
+insert into public.settlements (household_id, from_user, to_user, amount)
+values (:'nhid', '00000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-0000000000a1', 10);
+
+-- A shopping trip, then its expense: one notification for the trip.
+select id as nlist from public.shopping_lists where household_id = :'nhid' \gset
+insert into public.list_items (list_id, household_id, name, checked, checked_at) values
+  (:'nlist', :'nhid', 'חלב', true, now()),
+  (:'nlist', :'nhid', 'לחם', true, now());
+select public.complete_trip(:'nlist', null, 'רמי לוי', 120.50) as ntrip \gset
+select public.save_expense(
+  :'nhid', 'קניות ברמי לוי', 120.50, '00000000-0000-0000-0000-0000000000a1',
+  '{"00000000-0000-0000-0000-0000000000a1": 60.25, "00000000-0000-0000-0000-0000000000a2": 60.25}',
+  'groceries', current_date, 'default', null, 'trip', :'ntrip'
+);
+reset role;
+
+select set_config('test.sushi', :'sushi_id', false), set_config('test.ntrip', :'ntrip', false);
+do $$
+declare
+  ido uuid := '00000000-0000-0000-0000-0000000000a2';
+  o public.notification_outbox;
+begin
+  assert not exists (select 1 from public.notification_outbox where user_id <> ido),
+    'the person who acted was notified';
+  assert (select count(*) from public.notification_outbox) = 3,
+    format('expected sushi, transfer and trip: %s', (select jsonb_agg(dedup_key) from public.notification_outbox));
+
+  select * into o from public.notification_outbox where dedup_key = 'expense:' || current_setting('test.sushi');
+  assert o.kind = 'partner' and o.title = 'הוצאה חדשה · נועה' and o.body = 'סושי ₪90.50 · החלק שלך ₪45.25'
+    and o.url = '/expenses', format('expense notification wrong: %s', to_jsonb(o));
+
+  select * into o from public.notification_outbox where dedup_key like 'settlement:%';
+  assert o.title = 'העברה חדשה · נועה' and o.body = '₪200 הועברו אליך · החזר',
+    format('transfer notification wrong: %s', to_jsonb(o));
+
+  select * into o from public.notification_outbox where dedup_key = 'trip:' || current_setting('test.ntrip');
+  assert o.title = 'קנייה הסתיימה · נועה' and o.body = '₪120.50 ברמי לוי · 2 פריטים' and o.url = '/shopping',
+    format('trip notification wrong: %s', to_jsonb(o));
+end;
+$$;
+
+-- 4. Scheduled: bills, chores and the weekly summary, driven by p_now.
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000a1');
+update public.notification_prefs set bills = true, chores = true, weekly = true, admin = true;
+select public.test_login('00000000-0000-0000-0000-0000000000a2');
+-- Not an admin: the admin pref alone does nothing.
+update public.notification_prefs set bills = true, chores = true, weekly = true, admin = true;
+
+insert into public.bills (household_id, name, amount_type, amount, frequency, next_due_date, paid_by_default, auto_create) values
+  (:'nhid', 'ארנונה', 'fixed', 612, 'bimonthly', '2026-11-05', '00000000-0000-0000-0000-0000000000a1', false),
+  (:'nhid', 'חשמל', 'variable', null, 'bimonthly', '2026-11-02', null, false),
+  (:'nhid', 'מים', 'variable', 150, 'bimonthly', '2026-11-04', null, false),
+  (:'nhid', 'ספוטיפיי', 'fixed', 30, 'monthly', '2026-11-05', '00000000-0000-0000-0000-0000000000a1', true),
+  (:'nhid', 'נטפליקס', 'fixed', 55, 'monthly', current_date, '00000000-0000-0000-0000-0000000000a1', true);
+
+insert into public.chores (household_id, title, assignment, assignee_id, next_due) values
+  (:'nhid', 'הוצאת זבל', 'fixed', '00000000-0000-0000-0000-0000000000a1', '2026-11-02'),
+  (:'nhid', 'שטיפת רצפה', 'anyone', null, '2026-11-01'),
+  (:'nhid', 'כלים', 'rotate', '00000000-0000-0000-0000-0000000000a2', '2026-11-02'),
+  (:'nhid', 'כביסה', 'fixed', '00000000-0000-0000-0000-0000000000a2', '2026-11-03');
+
+-- In the week before Friday 2026-11-06, for the weekly summary.
+select public.save_expense(
+  :'nhid', 'ירקות', 100, '00000000-0000-0000-0000-0000000000a2',
+  '{"00000000-0000-0000-0000-0000000000a1": 50, "00000000-0000-0000-0000-0000000000a2": 50}',
+  'groceries', '2026-11-04'
+);
+reset role;
+
+-- The standing order: recorded by the cron job, everyone hears about it,
+-- and its expense (source 'bill') adds nothing.
+select public.auto_pay_due_bills() as autopaid \gset
+select set_config('test.autopaid', :'autopaid', false);
+do $$
+begin
+  assert current_setting('test.autopaid')::int >= 1, 'standing order not paid';
+  assert (select count(*) from public.notification_outbox where kind = 'bills' and dedup_key like 'autopay:%'
+          and title = 'הוראת קבע נרשמה' and body = 'נטפליקס ₪55') = 2, 'standing order notification wrong';
+  assert not exists (
+    select 1 from public.notification_outbox where kind = 'partner' and body like 'נטפליקס%'
+  ), 'bill expense notified as a partner action';
+end;
+$$;
+
+-- One statement per run, so they happen in this order.
+create temporary table sched_runs (label text primary key, n int);
+insert into sched_runs select 'mon 07:59', public.queue_scheduled_notifications('2026-11-02 07:59'::timestamp at time zone 'Asia/Jerusalem');
+insert into sched_runs select 'mon 08:01', public.queue_scheduled_notifications('2026-11-02 08:01'::timestamp at time zone 'Asia/Jerusalem');
+insert into sched_runs select 'mon 08:40', public.queue_scheduled_notifications('2026-11-02 08:40'::timestamp at time zone 'Asia/Jerusalem');
+insert into sched_runs select 'thu 09:05', public.queue_scheduled_notifications('2026-11-05 09:05'::timestamp at time zone 'Asia/Jerusalem');
+insert into sched_runs select 'fri 08:01', public.queue_scheduled_notifications('2026-11-06 08:01'::timestamp at time zone 'Asia/Jerusalem');
+insert into sched_runs select 'fri 09:05', public.queue_scheduled_notifications('2026-11-06 09:05'::timestamp at time zone 'Asia/Jerusalem');
+insert into sched_runs select 'fri 09:30', public.queue_scheduled_notifications('2026-11-06 09:30'::timestamp at time zone 'Asia/Jerusalem');
+
+do $$
+declare
+  noa uuid := '00000000-0000-0000-0000-0000000000a1';
+  ido uuid := '00000000-0000-0000-0000-0000000000a2';
+  hid uuid := current_setting('test.nhid')::uuid;
+  runs jsonb := (select jsonb_object_agg(label, n) from sched_runs);
+  spent numeric;
+  creditor text;
+  credit numeric;
+begin
+  -- Monday 08:01: two bills and one chores line each. Friday 08:01: chores
+  -- only (no bill is due on the 6th or the 9th). Friday 09:05: the summary.
+  assert runs = '{"mon 07:59": 0, "mon 08:01": 6, "mon 08:40": 0, "thu 09:05": 0,
+                  "fri 08:01": 2, "fri 09:05": 2, "fri 09:30": 0}'::jsonb, format('scheduled runs: %s', runs);
+
+  assert (
+    select array_agg(body order by body) from public.notification_outbox
+    where user_id = noa and dedup_key like 'bill:%'
+  ) = array['ארנונה ₪612 בעוד 3 ימים', 'חשמל לתשלום היום'], 'bill reminders wrong';
+  assert (
+    select array_agg(dedup_key like '%:2026-11-05:3d' or dedup_key like '%:2026-11-02:0d') = array[true, true]
+      and bool_and(title = 'תזכורת תשלום' and url = '/bills'
+                   and send_after = '2026-11-02 08:01'::timestamp at time zone 'Asia/Jerusalem')
+    from public.notification_outbox where user_id = ido and dedup_key like 'bill:%'
+  ), 'bill reminder keys or times wrong';
+  assert not exists (select 1 from public.notification_outbox where body like '%ספוטיפיי%'),
+    'a standing order got a due reminder';
+
+  assert (select body from public.notification_outbox where user_id = noa and dedup_key = 'chores:2026-11-02')
+    = 'היום: שטיפת רצפה, הוצאת זבל', 'Monday chores for נועה wrong';
+  assert (select body from public.notification_outbox where user_id = ido and dedup_key = 'chores:2026-11-02')
+    = 'היום: שטיפת רצפה, כלים', 'Monday chores for עידו wrong';
+  assert (select body from public.notification_outbox where user_id = ido and dedup_key = 'chores:2026-11-06')
+    = 'היום: שטיפת רצפה, כלים, כביסה', 'Friday chores (overdue included) wrong';
+
+  select coalesce(sum(amount), 0) into spent from public.expenses
+  where household_id = hid and expense_date between '2026-10-31' and '2026-11-06';
+  select m.display_name, b.balance into creditor, credit
+  from public.member_balances b join public.household_members m using (household_id, user_id)
+  where b.household_id = hid order by b.balance desc limit 1;
+  assert spent > 0 and credit > 0, 'weekly fixture missing';
+  assert (
+    select array_agg(body) = array_fill(
+      format('השבוע הוצאתם %s · יתרה לטובת %s %s', public.format_ils(spent), creditor, public.format_ils(credit)), array[2])
+    from public.notification_outbox where dedup_key = 'weekly:2026-11-06'
+  ), format('weekly summary wrong: %s', (select jsonb_agg(body) from public.notification_outbox where dedup_key like 'weekly:%'));
+end;
+$$;
+
+-- 5. Quiet hours: 22:00-07:00 Israel time waits for 07:30 (summer and winter).
+do $$
+declare
+  noa uuid := '00000000-0000-0000-0000-0000000000a1';
+  il text := 'Asia/Jerusalem';
+begin
+  assert public.after_quiet_hours('2026-11-02 23:00'::timestamp at time zone il)
+    = '2026-11-03 07:30'::timestamp at time zone il, '23:00 not held';
+  assert public.after_quiet_hours('2026-07-02 03:10'::timestamp at time zone il)
+    = '2026-07-02 07:30'::timestamp at time zone il, '03:10 (summer time) not held';
+  assert public.after_quiet_hours('2026-11-02 07:00'::timestamp at time zone il)
+    = '2026-11-02 07:00'::timestamp at time zone il, '07:00 held';
+  assert public.after_quiet_hours('2026-11-02 21:59'::timestamp at time zone il)
+    = '2026-11-02 21:59'::timestamp at time zone il, '21:59 held';
+
+  perform public.enqueue_notification(noa, 'partner', 'לילה', 'x', '/', 'quiet:1', '2026-11-02 23:00'::timestamp at time zone il);
+  assert (select send_after from public.notification_outbox where dedup_key = 'quiet:1')
+    = '2026-11-03 07:30'::timestamp at time zone il, 'a notification at 23:00 is not held for 07:30';
+  -- A test notification is what the person just asked for: never held.
+  perform public.enqueue_notification(noa, 'test', 'לילה', 'x', '/', 'quiet:2', '2026-11-02 23:00'::timestamp at time zone il);
+  assert (select send_after from public.notification_outbox where dedup_key = 'quiet:2')
+    = '2026-11-02 23:00'::timestamp at time zone il, 'a test notification was held';
+  -- Same key again: nothing new.
+  assert public.enqueue_notification(noa, 'partner', 'שוב', 'x', '/', 'quiet:1') is null, 'duplicate queued';
+  begin
+    perform public.enqueue_notification(noa, 'spam', 'x', 'x', '/', 'quiet:3');
+    raise exception 'unknown kind accepted';
+  exception when others then
+    if sqlerrm not like 'unknown notification kind%' then raise; end if;
+  end;
+end;
+$$;
+
+-- 6. Price updates, for admins only (עידו has the pref but is not an admin).
+insert into public.ingest_runs default values returning id as run_ok \gset
+insert into public.ingest_runs default values returning id as run_partial \gset
+update public.ingest_runs set status = 'ok', finished_at = now() where id = :run_ok;
+update public.ingest_runs set status = 'partial', finished_at = now(),
+  stats = '{"rami_levy": {"stores": {"39": {"name": "באר שבע", "error": "no PriceFull file"}}},
+            "shufersal": {"stores": {"413": {"name": "דיל", "items": 10}}}}'
+where id = :run_partial;
+update public.ingest_runs set status = 'failed' where id = :run_partial;
+select set_config('test.run_partial', :'run_partial', false);
+do $$
+declare
+  o public.notification_outbox;
+begin
+  assert (select count(*) from public.notification_outbox where kind = 'admin') = 1,
+    format('admin notifications: %s', (select jsonb_agg(to_jsonb(x)) from public.notification_outbox x where kind = 'admin'));
+  assert public.enqueue_notification('00000000-0000-0000-0000-0000000000a2', 'admin', 'x', 'x', '/', 'admin:x') is null,
+    'admin notification queued for a non-admin';
+  select * into o from public.notification_outbox where kind = 'admin';
+  assert o.user_id = '00000000-0000-0000-0000-0000000000a1' and o.dedup_key = 'ingest:' || current_setting('test.run_partial')
+    and o.title = 'טעינת המחירים הסתיימה חלקית' and o.body = 'רשתות עם תקלה: רמי לוי' and o.url = '/admin',
+    format('admin notification wrong: %s', to_jsonb(o));
+end;
+$$;
+
+-- 7. A test notification, for the caller only. Both taps in one transaction
+-- (one now()), so they always fall in the same 10 seconds.
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000a2');
+do $$
+declare
+  first_id bigint := public.send_test_notification();
+  second_id bigint := public.send_test_notification();
+begin
+  assert first_id is not null and second_id is null, format('test notifications: %s, %s', first_id, second_id);
+  perform set_config('test.test_id', first_id::text, false);
+end;
+$$;
+reset role;
+do $$
+begin
+  assert (select user_id = '00000000-0000-0000-0000-0000000000a2' and kind = 'test' and title = 'התראת בדיקה'
+          from public.notification_outbox where id = current_setting('test.test_id')::bigint), 'test notification wrong';
+end;
+$$;
+
+-- 8. Sending. Without pg_net and Vault (plain Postgres): a no-op, no error.
+do $$
+begin
+  assert to_regnamespace('net') is null and to_regnamespace('vault') is null, 'pg_net/vault exist: adjust this test';
+  assert public.request_push_send() is null, 'request_push_send did something without pg_net';
+end;
+$$;
+
+-- Then with stand-ins for both, created here and dropped below (not in
+-- local_stub.sql, so the no-op above stays tested): net.http_post records
+-- the request, vault.decrypted_secrets holds the two secrets.
+create schema net;
+create table net.test_requests (id bigint generated always as identity, url text, headers jsonb, body jsonb);
+create function net.http_post(
+  url text, body jsonb default '{}', params jsonb default '{}', headers jsonb default '{}',
+  timeout_milliseconds int default 5000
+) returns bigint language sql as $$
+  insert into net.test_requests (url, headers, body) values (url, headers, body) returning id;
+$$;
+create schema vault;
+create view vault.decrypted_secrets as
+  select * from (values
+    ('push_function_url', 'https://example.supabase.co/functions/v1/send-push'),
+    ('push_secret', 'test-secret')
+  ) s (name, decrypted_secret);
+
+-- Everything queued so far counts as sent, so the checks below see only their own rows.
+update public.notification_outbox set sent_at = now() where sent_at is null;
+select public.request_push_send() is null as nothing_due \gset
+-- Two inserts in one transaction make one request; a later one makes another.
+do $$
+begin
+  perform public.enqueue_notification('00000000-0000-0000-0000-0000000000a1', 'test', 'א', 'x', '/', 'send:1');
+  perform public.enqueue_notification('00000000-0000-0000-0000-0000000000a2', 'test', 'ב', 'x', '/', 'send:2');
+end;
+$$;
+select public.enqueue_notification('00000000-0000-0000-0000-0000000000a2', 'test', 'ג', 'x', '/', 'send:3');
+select set_config('test.nothing_due', :'nothing_due', false);
+do $$
+begin
+  assert current_setting('test.nothing_due')::boolean, 'requested a send with nothing due';
+  assert (select count(*) from net.test_requests) = 2,
+    format('expected one request per transaction: %s', (select count(*) from net.test_requests));
+  assert (
+    select bool_and(url = 'https://example.supabase.co/functions/v1/send-push' and headers ->> 'x-push-secret' = 'test-secret')
+    from net.test_requests
+  ), 'request URL or secret wrong';
+end;
+$$;
+
+-- The Edge Function's side: claim, then report. Service role only.
+insert into public.notification_outbox (user_id, kind, title, dedup_key, send_after)
+values ('00000000-0000-0000-0000-0000000000a1', 'test', 'ישן', 'send:old', now() - interval '2 days');
+set role service_role;
+do $$
+begin
+  perform set_config('test.batch', public.claim_push_batch(10)::text, false);
+  perform set_config('test.batch_again', public.claim_push_batch(10)::text, false);
+end;
+$$;
+reset role;
+do $$
+declare
+  batch jsonb := current_setting('test.batch')::jsonb;
+  ido_batch jsonb;
+begin
+  assert jsonb_array_length(batch) = 3, format('claimed: %s', batch);
+  assert (select array_agg(x ->> 'tag' order by x ->> 'tag') from jsonb_array_elements(batch) x)
+    = array['send:1', 'send:2', 'send:3'], 'claimed the wrong rows';
+  select x into ido_batch from jsonb_array_elements(batch) x where x ->> 'tag' = 'send:2';
+  assert (select array_agg(s ->> 'endpoint' order by s ->> 'endpoint') from jsonb_array_elements(ido_batch -> 'subscriptions') s)
+    = array['https://push.example.com/ido', 'https://push.example.com/shared'], 'subscriptions missing from the batch';
+  assert ido_batch ? 'title' and ido_batch ? 'body' and ido_batch ? 'url', 'payload fields missing';
+  assert current_setting('test.batch_again')::jsonb = '[]'::jsonb, 'claimed rows claimed again';
+  assert (select last_error = 'expired' and sent_at is null and attempts >= 5
+          from public.notification_outbox where dedup_key = 'send:old'), 'old row not expired';
+  assert (select bool_and(attempts = 1 and claimed_at is not null)
+          from public.notification_outbox where dedup_key like 'send:_'), 'claim did not count an attempt';
+end;
+$$;
+
+select format('[{"id": %s, "ok": true}, {"id": %s, "ok": true, "error": "1 of 2 devices failed"}, {"id": %s, "ok": false, "error": "503"}]',
+  (select id from public.notification_outbox where dedup_key = 'send:1'),
+  (select id from public.notification_outbox where dedup_key = 'send:2'),
+  (select id from public.notification_outbox where dedup_key = 'send:3')) as results \gset
+set role service_role;
+select public.finish_push_batch(:'results', array['https://push.example.com/noa'], array['https://push.example.com/shared']);
+reset role;
+do $$
+begin
+  assert (select sent_at is not null and last_error is null and claimed_at is null
+          from public.notification_outbox where dedup_key = 'send:1'), 'sent row not marked';
+  assert (select sent_at is not null and last_error = '1 of 2 devices failed'
+          from public.notification_outbox where dedup_key = 'send:2'), 'partly sent row wrong';
+  assert (select sent_at is null and last_error = '503' and claimed_at is null and attempts = 1
+          from public.notification_outbox where dedup_key = 'send:3'), 'failed row not released for a retry';
+  assert not exists (select 1 from public.push_subscriptions where endpoint = 'https://push.example.com/shared'),
+    'gone subscription kept';
+  assert (select last_success_at is not null from public.push_subscriptions where endpoint = 'https://push.example.com/noa'),
+    'last_success_at not set';
+end;
+$$;
+
+-- The failed row is due again, so the fallback cron job asks once more.
+select public.request_push_send() is not null as retry_requested \gset
+select set_config('test.retry', :'retry_requested', false);
+do $$
+begin
+  assert current_setting('test.retry')::boolean, 'no request for a row waiting to be retried';
+end;
+$$;
+
+drop schema net cascade;
+drop schema vault cascade;
+
 \echo 'All database tests passed'
