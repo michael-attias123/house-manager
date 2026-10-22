@@ -53,3 +53,22 @@ export async function sendTestNotification(): Promise<void> {
   const { error } = await supabase.rpc('send_test_notification')
   if (error) throw new Error(hebrew(error.message))
 }
+
+/**
+ * Called before signing out: this browser stops getting the account's
+ * notifications. Best effort and quick, so it never holds up the sign-out.
+ */
+export async function forgetThisDevice(): Promise<void> {
+  try {
+    const registration = await navigator.serviceWorker?.getRegistration()
+    const subscription = await registration?.pushManager?.getSubscription()
+    if (!subscription) return
+    await Promise.race([
+      deleteDevice(subscription.endpoint),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ])
+    await subscription.unsubscribe()
+  } catch {
+    // Offline or unsupported: the server drops the device once the push service forgets it.
+  }
+}
