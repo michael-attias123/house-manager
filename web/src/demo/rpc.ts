@@ -455,6 +455,9 @@ export const RPCS: Record<string, (args: Args) => unknown> = {
 
   is_admin: () => isAdmin(),
 
+  // No push in the demo: the card says so, and the test button only "sends".
+  send_test_notification: () => null,
+
   admin_list_allowed_emails: () => {
     requireAdmin()
     return [...db.allowed_emails].sort((a, b) => String(a.email).localeCompare(String(b.email)))

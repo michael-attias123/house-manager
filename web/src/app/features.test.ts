@@ -24,4 +24,11 @@ describe('feature registry', () => {
     expect(moreFeatures().map((f) => f.id)).not.toContain('admin')
     expect(featureForPath('/admin')?.SettingsSection).toBeDefined()
   })
+
+  it('has a Settings card for notifications, before the rarely used ones, and no nav entry', () => {
+    const sections = FEATURES.filter((f) => f.SettingsSection).map((f) => f.id)
+    expect(sections[0]).toBe('notifications')
+    expect(primaryNav().map((n) => n.key)).not.toContain('notifications')
+    expect(moreFeatures().map((f) => f.id)).not.toContain('notifications')
+  })
 })

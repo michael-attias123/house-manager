@@ -155,7 +155,67 @@ insert into public.allowed_emails (email) values ('you@gmail.com'), ('partner@gm
 
 ---
 
-## 5. אם רשת מסוימת לא נטענת
+## 5. התראות בטלפון (רשות)
+
+תזכורות לחשבונות ולמטלות, מה שבן/בת הזוג רשמו, וסיכום שבועי, גם כשהאפליקציה סגורה. ההתראות נשלחות דרך Supabase (Edge Function ו-`pg_net`, שניהם בחינם), וההגדרה נעשית פעם אחת. עד שמסיימים אותה, הכרטיס **התראות** בהגדרות מציג "התראות עוד לא הוגדרו".
+
+| התראה | מה מקבלים | מתי |
+|---|---|---|
+| **חשבונות** | "ארנונה ₪612 בעוד 3 ימים", "חשמל לתשלום היום" (לא להוראות קבע), "הוראת קבע נרשמה: נטפליקס ₪55" | ב-08:00, וכשהוראת קבע נרשמת |
+| **מטלות** | "היום: הוצאת זבל, שטיפת רצפה": מה שמוטל עליכם היום (או באיחור), או על כולם | ב-08:00 |
+| **פעולות של בן/בת הזוג** | הוצאה שיש לכם חלק בה, העברה אליכם, קנייה שהסתיימה. לא על מה שאתם עצמכם רשמתם, ולא על ייבוא מ-Splitwise | מיד |
+| **סיכום שבועי** | "השבוע הוצאתם ₪1,240 · יתרה לטובת יהלי ₪80" | ביום שישי ב-09:00 |
+| **ניהול** (רק למנהלים) | טעינת המחירים נכשלה, או הסתיימה רק בחלקה | כשזה קורה |
+
+כל ההתראות כבויות עד שבוחרים אותן. בין 22:00 ל-07:00 לא נשלחות התראות, ומה שקרה בלילה מגיע ב-07:30.
+
+**1. מפתחות VAPID.** במחשב עם Node.js מריצים:
+```bash
+npx web-push generate-vapid-keys
+```
+מתקבלים שני מפתחות: **Public Key** ו-**Private Key**. את הפרטי לא שומרים בריפו ולא שולחים לאף אחד.
+
+**2. Cloudflare Pages.** בפרויקט, **Settings → Variables and Secrets**, מוסיפים את `VITE_VAPID_PUBLIC_KEY` עם ה-Public Key, ואז ב-**Deployments** לוחצים **Retry deployment** על הפריסה האחרונה.
+
+**3. Supabase.**
+1. **Edge Functions → Secrets** (או **Project Settings → Edge Functions**), מוסיפים ארבעה ערכים:
+   | Secret | ערך |
+   |---|---|
+   | `VAPID_PUBLIC_KEY` | ה-Public Key |
+   | `VAPID_PRIVATE_KEY` | ה-Private Key |
+   | `VAPID_SUBJECT` | `mailto:you@example.com`, עם המייל שלכם. שירותי ההתראות של Apple ו-Google פונים אליו אם יש בעיה |
+   | `PUSH_SECRET` | מחרוזת אקראית ארוכה, למשל הפלט של `openssl rand -hex 32` |
+2. **SQL Editor**: שומרים ב-Vault את כתובת הפונקציה ואת אותו `PUSH_SECRET`, כדי שמסד הנתונים יוכל לקרוא לה. ה-`<ref>` הוא מזהה הפרויקט (מה-Project URL):
+   ```sql
+   select vault.create_secret('https://<ref>.supabase.co/functions/v1/send-push', 'push_function_url');
+   select vault.create_secret('<PUSH_SECRET>', 'push_secret');
+   ```
+   לשינוי ערך מאוחר יותר: `select vault.update_secret(id, '<new value>') from vault.secrets where name = 'push_secret';`.
+3. **Database → Extensions**: בודקים ש-`pg_net` ו-`pg_cron` מופעלים. ה-migration מנסה להפעיל אותם לבד. אם `pg_cron` הופעל רק אחרי שה-migrations רצו, מריצים ב-SQL Editor:
+   ```sql
+   select cron.schedule('queue-notifications', '1 * * * *', 'select public.queue_scheduled_notifications()');
+   select cron.schedule('send-push', '*/10 * * * *', 'select public.request_push_send()');
+   ```
+
+**4. GitHub**, כדי שהפונקציה `send-push` תעלה לבד. ב-**Settings → Secrets and variables → Actions** מוסיפים:
+| Secret | ערך |
+|---|---|
+| `SUPABASE_ACCESS_TOKEN` | טוקן מ-[supabase.com/dashboard/account/tokens](https://supabase.com/dashboard/account/tokens) (**Generate new token**) |
+| `SUPABASE_PROJECT_REF` | ה-`<ref>` של הפרויקט |
+
+ואז **Actions → Database migrations → Run workflow**. מעכשיו הפונקציה מתעדכנת בכל שינוי ב-`supabase/functions` ב-`main`.
+
+> בלי GitHub: `npx supabase functions deploy send-push --project-ref <ref> --no-verify-jwt` מתוך תיקיית הריפו (דורש `npx supabase login`). מסד הנתונים קורא לפונקציה עם `PUSH_SECRET` ולא עם התחברות של משתמש, ולכן **Verify JWT** חייב להיות כבוי. אם הפונקציה נוצרה בעורך של Supabase, מכבים אותו בהגדרות שלה.
+
+**5. בכל טלפון.**
+- **iPhone:** התראות עובדות רק מהאייקון במסך הבית (שלב 4), וב-iOS 16.4 ומעלה. בלשונית ספארי רגילה הכרטיס יסביר איך להתקין.
+- נכנסים ל-**עוד → הגדרות → התראות**, לוחצים **הפעלת התראות בטלפון הזה** ומאשרים.
+- בוחרים אילו התראות לקבל. הבחירה חלה על כל המכשירים שלכם, וההפעלה עצמה נעשית בכל טלפון בנפרד.
+- לוחצים **שליחת התראת בדיקה**. ההתראה אמורה להגיע תוך כמה שניות.
+
+---
+
+## 6. אם רשת מסוימת לא נטענת
 
 חלק מאתרי המחירים חוסמים גישה מחוץ לישראל, והשרתים של GitHub נמצאים בחו"ל. ביומן של **Supermarket prices** אפשר לראות אילו רשתות נכשלו. החלופה היא להריץ את הטעינה ממחשב בבית, ל-Python 3.12:
 
@@ -181,7 +241,7 @@ python -m house_ingest run --chains rami_levy,osher_ad
 
 ---
 
-## 6. פיתוח מקומי
+## 7. פיתוח מקומי
 
 ```bash
 cd web
@@ -224,4 +284,16 @@ pnpm dev                     # http://localhost:5173
   - `not on allowed_emails`: הכתובת לא ברשימת המורשים. ההסבר בשלב 3, "מי יכול להירשם".
   - **Google מציג `disallowed_useragent`**: הקישור נפתח בתוך אפליקציה כמו אינסטגרם. פותחים אותו בספארי.
   - **Google מציג `access_denied` או "Access blocked"**: אפליקציית Google במצב Testing, והחשבון לא ב-Test users.
-- **השוואת הסלים ריקה**: בודקים ביומן של **Supermarket prices** אילו רשתות נכשלו. אם חלקן נחסמו, עוברים לסעיף 5.
+- **התראות לא מגיעות**:
+  1. ב-Supabase, **Edge Functions → send-push → Logs**: כל קריאה מסתיימת בשורה `send-push: N done, M to retry`. אם אין שם כלום, מסד הנתונים לא קורא לפונקציה (שלב 3 בסעיף 5).
+  2. ב-SQL Editor, מה מחכה לשליחה ומה נכשל:
+     ```sql
+     select * from notification_outbox order by created_at desc limit 20;
+     ```
+     - **אין שורות**: ההתראה כבויה בהגדרות, או שהטלפון לא רשום. בודקים עם `select * from notification_prefs;` ו-`select user_id, user_agent, last_success_at from push_subscriptions;`.
+     - **`sent_at` ריק ו-`attempts` = 0**: הפונקציה לא נקראה. בודקים שה-Vault מכיל את שני הערכים ו-`pg_net` מופעל, ואת תשובות הקריאות: `select status_code, content from net._http_response order by created desc limit 5;`. `401` אומר ש-`PUSH_SECRET` ב-Vault שונה מזה שבסודות של הפונקציה, ו-`404` אומר שהכתובת שגויה או שהפונקציה לא עלתה.
+     - **`last_error`**: מה ששירות ההתראות ענה. `403` אחרי החלפת מפתחות VAPID: מפעילים מחדש בכל טלפון. `expired`: ההתראה חיכתה יותר מיממה ולא נשלחה.
+     - **`send_after` בעתיד**: שעות שקטות, היא תצא ב-07:30.
+  3. **אייפון**: ההתראות צריכות להיות מותרות ב-**הגדרות ← הודעות ← הבית**, והאפליקציה צריכה להיפתח מהאייקון.
+- **הכרטיס "התראות" אומר "התראות עוד לא הוגדרו"**: חסר `VITE_VAPID_PUBLIC_KEY` ב-Cloudflare Pages, או שלא הייתה פריסה מאז שהוסף (סעיף 5, שלב 2).
+- **השוואת הסלים ריקה**: בודקים ביומן של **Supermarket prices** אילו רשתות נכשלו. אם חלקן נחסמו, עוברים לסעיף 6.

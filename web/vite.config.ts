@@ -48,6 +48,8 @@ export default defineConfig(({ mode }) => {
             }),
           ],
           globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+          // Web Push (public/push-handler.js), resolved next to sw.js.
+          importScripts: ['push-handler.js'],
         },
       }),
     ],

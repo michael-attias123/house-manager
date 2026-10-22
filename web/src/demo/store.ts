@@ -33,7 +33,11 @@ function load(): Db {
   const saved = read(DB_KEY)
   if (saved) {
     try {
-      return JSON.parse(saved) as Db
+      const db = JSON.parse(saved) as Db
+      // Tables added since this browser saved its data start empty, so a
+      // new table needs no DB_KEY bump (which would reset everyone's demo).
+      for (const table of Object.keys(createSeed())) db[table] ??= []
+      return db
     } catch {
       // Fall through to a fresh seed.
     }
@@ -75,7 +79,7 @@ const nowIso = () => new Date().toISOString()
 export function withDefaults(table: string, row: Row): Row {
   const today = todayISO()
   const base: Row = {}
-  if (!['household_members', 'expense_shares', 'prices', 'product_links'].includes(table)) base.id = uuid()
+  if (!['household_members', 'expense_shares', 'prices', 'product_links', 'notification_prefs'].includes(table)) base.id = uuid()
   if (['list_items', 'expenses', 'bills', 'chores'].includes(table)) base.updated_at = nowIso()
   base.created_at = nowIso()
   switch (table) {
@@ -100,6 +104,9 @@ export function withDefaults(table: string, row: Row): Row {
     case 'product_links':
       base.updated_at = nowIso()
       break
+    case 'notification_prefs':
+      Object.assign(base, { bills: false, chores: false, partner: false, weekly: false, admin: false, updated_at: nowIso() })
+      break
   }
   return { ...base, ...row }
 }
@@ -110,6 +117,7 @@ export const PRIMARY_KEYS: Record<string, string[]> = {
   expense_shares: ['expense_id', 'user_id'],
   prices: ['store_id', 'barcode'],
   product_links: ['household_id', 'normalized_name'],
+  notification_prefs: ['user_id'],
 }
 
 export function primaryKey(table: string): string[] {

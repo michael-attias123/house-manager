@@ -261,6 +261,30 @@ export interface AdminHousehold {
   list_item_count: number
 }
 
+/** public.notification_prefs: which notification kinds a user wants, on all their devices. */
+export interface NotificationPrefs {
+  user_id: string
+  bills: boolean
+  chores: boolean
+  partner: boolean
+  weekly: boolean
+  /** Only counts for admins. */
+  admin: boolean
+  updated_at?: string
+}
+
+/** public.push_subscriptions: a browser or phone that turned notifications on. */
+export interface PushSubscriptionRow {
+  id: string
+  user_id: string
+  endpoint: string
+  p256dh: string
+  auth: string
+  user_agent: string | null
+  created_at: string
+  last_success_at: string | null
+}
+
 /** A row of admin_list_users(). */
 export interface AdminUser {
   id: string

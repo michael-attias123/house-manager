@@ -15,6 +15,7 @@ web/                React 19 + TypeScript + Vite PWA (Tailwind 4, TanStack Query
 supabase/
   migrations/       one SQL file per feature; RLS on every table
   tests/            local_stub.sql (Supabase stand-in) + db_test.sql (RLS/RPC checks)
+  functions/        Edge Functions (Deno): send-push, deployed by db-migrate.yml
 ingest/             Python 3.12: Price Transparency files → Postgres (daily GitHub Action)
 scripts/db-test.sh  migrations + db_test.sql + ingest tests on a throwaway Postgres
 docs/setup.md       deployment guide (Hebrew)
@@ -83,6 +84,11 @@ its components.
   security definer and start with `if not public.is_admin() then raise
   ... errcode '42501'`; the client calls `is_admin()` only to decide what
   to show. Their demo ports in `demo/rpc.ts` keep the same guards.
+- Notifications: `enqueue_notification()` is the single entry point (prefs, quiet hours,
+  dedup by `(user_id, dedup_key)`); a source is a trigger or RPC that calls it or
+  `notify_members()`, never an insert into `notification_outbox`.
+- Every notification kind is off by default (`notification_prefs`, per user, not per
+  household); a new kind needs a pref column, its check entry and a toggle in `features/notifications`.
 - Columns that name a household member are listed once, in SQL
   `move_member_refs()` (and `MEMBER_COLUMNS` in `demo/rpc.ts`); a new one
   goes there. `detach_member()` is the one rule for taking a member out

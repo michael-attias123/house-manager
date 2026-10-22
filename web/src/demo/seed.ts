@@ -77,6 +77,10 @@ export function createSeed(now: Date = new Date()): Db {
       { id: TAL, email: 'tal@demo', raw_user_meta_data: { full_name: 'טל' }, created_at: at(daysAgo(12)), last_sign_in_at: at(daysAgo(12), '19:02') },
     ],
     app_admins: [{ user_id: MICHAEL, added_at: at(daysAgo(200)) }],
+    // Notifications (20261022000100_notifications.sql). Push itself does not
+    // work in the demo; the choices are kept like any other table.
+    notification_prefs: [],
+    push_subscriptions: [],
     // Added after טל signed up, so that account is not on the list.
     allowed_emails: [
       { email: 'michael@demo', note: null, added_at: at(daysAgo(5)) },

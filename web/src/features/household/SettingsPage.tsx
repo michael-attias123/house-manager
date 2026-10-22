@@ -9,6 +9,7 @@ import { ErrorBox } from '@/components/ui/Feedback'
 import { MemberAvatar } from '@/components/ui/MemberAvatar'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { FEATURES } from '@/app/features'
+import { forgetThisDevice } from '@/features/notifications/api'
 import { addPlaceholderMember, regenerateInviteCode, renameHousehold, updateMember } from './api'
 import { householdKeys, useHousehold } from './HouseholdProvider'
 
@@ -205,7 +206,14 @@ export function SettingsPage() {
         </ErrorBoundary>
       ))}
 
-      <Button variant="ghost" className="w-full" onClick={() => supabase.auth.signOut()}>
+      <Button
+        variant="ghost"
+        className="w-full"
+        onClick={async () => {
+          await forgetThisDevice()
+          await supabase.auth.signOut()
+        }}
+      >
         <LogOut size={18} />
         יציאה מהחשבון
       </Button>

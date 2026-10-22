@@ -16,3 +16,8 @@ additional_redirect_urls = ["http://localhost:5173"]
 enabled = true
 client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
 secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+
+# Called by the database (request_push_send(), through pg_net) with the
+# x-push-secret header instead of a user's JWT.
+[functions.send-push]
+verify_jwt = false
