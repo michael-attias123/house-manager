@@ -1,0 +1,23 @@
+# Provider downloads and local working data.
+.terraform/
+# State and plans never live in git (state is in R2, encrypted).
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+*.plan
+crash.log
+crash.*.log
+# Local overrides and CLI config.
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Decrypted secrets: only secrets.enc.yaml is committed.
+secrets.yaml
+secrets.dec.yaml
+*.dec.yaml
+*.decrypted.*
+# .terraform.lock.hcl IS committed.

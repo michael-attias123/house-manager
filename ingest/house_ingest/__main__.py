@@ -3,6 +3,8 @@
 run       download today's Stores + PriceFull files for the configured chains'
           branches in the city and load them into the database.
 discover  print the branches found in the city per chain (nothing is written).
+          --all-chains: every chain the scraper supports, not just config.yaml;
+          --match REGEX: also list branches anywhere whose name or address matches.
 """
 
 from __future__ import annotations
@@ -59,14 +61,32 @@ def discover_stores(chains: list[ChainConfig], work: Path, from_dir: Path | None
     return found
 
 
-def cmd_discover(config: Config, chains: list[ChainConfig], work: Path, from_dir: Path | None) -> int:
+def all_scraper_chains() -> list[ChainConfig]:
+    """Every chain il-supermarket-scraper knows, for finding a store's chain."""
+    from il_supermarket_scarper import ScraperFactory
+
+    return [ChainConfig(id=s.name.lower(), name=s.name, scraper=s.name) for s in ScraperFactory]
+
+
+def cmd_discover(
+    config: Config, chains: list[ChainConfig], work: Path, from_dir: Path | None, match: str | None = None
+) -> int:
     found = discover_stores(chains, work, from_dir)
+    pattern = re.compile(match, re.IGNORECASE) if match else None
+    matches: list[str] = []
     for chain in chains:
         chain_code, stores = found[chain.id]
         local = [s for s in stores if in_city(s, config.city_names, config.city_codes)]
         print(f"\n{chain.name} ({chain.id}, {chain_code or '?'}): {len(stores)} stores, {len(local)} in city")
         for s in sorted(local, key=lambda s: s.name):
             print(f"  {s.store_code:>5}  {s.name}  —  {s.address or ''}, {s.city}")
+        if pattern:
+            for s in stores:
+                if pattern.search(f"{s.name} {s.address or ''}"):
+                    matches.append(f"  {chain.id}  {s.store_code:>5}  {s.name}  —  {s.address or ''}, {s.city}")
+    if pattern:
+        print(f"\nBranches matching {match!r}: {len(matches)}")
+        print("\n".join(matches) or "  (none)")
     return 0
 
 
@@ -140,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="house_ingest", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["run", "discover"])
     parser.add_argument("--chains", help="comma-separated chain ids from config.yaml (default: all)")
+    parser.add_argument("--all-chains", action="store_true", help="discover: every chain the scraper supports")
+    parser.add_argument("--match", help="discover: also list branches anywhere whose name/address matches REGEX")
     parser.add_argument("--config", type=Path, help="path to config.yaml")
     parser.add_argument("--dry-run", action="store_true", help="parse and report, write nothing")
     parser.add_argument("--work-dir", type=Path, help="keep downloaded files here (default: temp dir)")
@@ -152,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     config = load_config(args.config) if args.config else load_config()
-    chains = config.chains
+    chains = all_scraper_chains() if args.all_chains else config.chains
     if args.chains:
         wanted = set(args.chains.split(","))
         chains = [c for c in chains if c.id in wanted]
@@ -161,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         work = args.work_dir or Path(tmp)
         work.mkdir(parents=True, exist_ok=True)
         if args.command == "discover":
-            return cmd_discover(config, chains, work, args.from_dir)
+            return cmd_discover(config, chains, work, args.from_dir, args.match)
         return cmd_run(config, chains, work, args.from_dir, args.dry_run)
 
 
