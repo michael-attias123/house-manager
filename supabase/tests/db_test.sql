@@ -971,7 +971,8 @@ begin
     'select public.request_push_send()',
     'select public.queue_scheduled_notifications()',
     'select public.claim_push_batch(1)',
-    'select public.finish_push_batch(''[]'')'
+    'select public.finish_push_batch(''[]'')',
+    'select public.notify_admins(''x'', ''x'', ''/'', ''x'')'
   ] loop
     begin
       execute c;
@@ -1244,6 +1245,62 @@ begin
   assert o.user_id = '00000000-0000-0000-0000-0000000000a1' and o.dedup_key = 'ingest:' || current_setting('test.run_partial')
     and o.title = 'טעינת המחירים הסתיימה חלקית' and o.body = 'רשתות עם תקלה: רמי לוי' and o.url = '/admin',
     format('admin notification wrong: %s', to_jsonb(o));
+end;
+$$;
+
+-- 6b. notify_admins (20261027000100_notify_admins.sql): CI only, as the owner.
+-- Not even an admin can run it from the app, nor the service role.
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000a1');
+do $$
+begin
+  perform public.notify_admins('x', 'x', '/admin', 'drift:test');
+  raise exception 'an admin ran notify_admins from the app';
+exception when insufficient_privilege then null;
+end;
+$$;
+reset role;
+set role anon;
+do $$
+begin
+  perform public.notify_admins('x', 'x', '/admin', 'drift:test');
+  raise exception 'anon ran notify_admins';
+exception when insufficient_privilege then null;
+end;
+$$;
+reset role;
+set role service_role;
+do $$
+begin
+  perform public.notify_admins('x', 'x', '/admin', 'drift:test');
+  raise exception 'service_role ran notify_admins';
+exception when insufficient_privilege then null;
+end;
+$$;
+reset role;
+
+-- As the owner: נועה (admin, pref on) gets it once; עידו (pref on, not an
+-- admin) never does; the same dedup key again queues nothing.
+select public.notify_admins('התשתית השתנתה מחוץ לקוד', 'יש הבדל בין הקוד לבין מה שמוגדר בפועל. הפרטים ב-GitHub',
+  '/admin', 'drift:2026-W44') as drift_first \gset
+select public.notify_admins('התשתית השתנתה מחוץ לקוד', 'שוב', '/admin', 'drift:2026-W44') as drift_again \gset
+select set_config('test.drift', format('[%s, %s]', :'drift_first', :'drift_again'), false);
+do $$
+declare
+  o public.notification_outbox;
+begin
+  assert current_setting('test.drift')::jsonb = '[1, 0]'::jsonb, format('notify_admins counts: %s', current_setting('test.drift'));
+  assert (select count(*) from public.notification_outbox where dedup_key = 'drift:2026-W44') = 1, 'drift notification not deduplicated';
+  select * into o from public.notification_outbox where dedup_key = 'drift:2026-W44';
+  assert o.user_id = '00000000-0000-0000-0000-0000000000a1' and o.kind = 'admin' and o.url = '/admin'
+    and o.title = 'התשתית השתנתה מחוץ לקוד' and o.body = 'יש הבדל בין הקוד לבין מה שמוגדר בפועל. הפרטים ב-GitHub',
+    format('drift notification wrong: %s', to_jsonb(o));
+  begin
+    perform public.notify_admins('x', 'x', '/admin', '');
+    raise exception 'notify_admins without a dedup key';
+  exception when others then
+    if sqlerrm <> 'title and dedup key are required' then raise; end if;
+  end;
 end;
 $$;
 

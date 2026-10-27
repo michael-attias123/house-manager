@@ -30,6 +30,17 @@ for f in "$ROOT"/supabase/migrations/*.sql; do
 done
 "${PSQL[@]}" "$DATABASE_URL" -f "$ROOT/supabase/tests/db_test.sql"
 
+# infra/scripts/sync-vault.sh against a Vault stand-in: the first run creates
+# both secrets, the second updates them. A quote in the value checks quoting.
+echo "vault: sync-vault.sh"
+"${PSQL[@]}" "$DATABASE_URL" -f "$ROOT/supabase/tests/vault_stub.sql"
+SUPABASE_DB_URL="$DATABASE_URL" PUSH_FUNCTION_URL="https://first.example.com/functions/v1/send-push" \
+  PUSH_SECRET="first-secret" "$ROOT/infra/scripts/sync-vault.sh" >/dev/null
+SUPABASE_DB_URL="$DATABASE_URL" PUSH_FUNCTION_URL="https://ref.example.com/functions/v1/send-push" \
+  PUSH_SECRET="it's-a-test; select 1" "$ROOT/infra/scripts/sync-vault.sh"
+"${PSQL[@]}" "$DATABASE_URL" -v expected_url="https://ref.example.com/functions/v1/send-push" \
+  -v expected_secret="it's-a-test; select 1" -f "$ROOT/supabase/tests/vault_sync_test.sql"
+
 # Price ingestion against the same database, if its Python deps are available.
 INGEST_PYTHON="${INGEST_PYTHON:-python3}"
 if "$INGEST_PYTHON" -c "import psycopg, yaml, lxml, pytest" 2>/dev/null; then

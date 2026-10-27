@@ -1,0 +1,263 @@
+name: Bootstrap check
+
+# Read-only: checks the hand-made "layer zero" that infra/ (OpenTofu) cannot
+# create for itself (infra/BOOTSTRAP.md): every bootstrap secret is set and
+# every token works. Each item prints ✓ or ✗ with how to fix it, never a
+# value. Every check runs; the job fails at the end if any failed.
+# Run it from the Actions tab before the first plan; infra.yml also runs it
+# before every plan, apply and drift check.
+on:
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+      R2_ACCESS_KEY_ID:
+        required: false
+      R2_SECRET_ACCESS_KEY:
+        required: false
+      SUPABASE_ACCESS_TOKEN:
+        required: false
+      GH_ADMIN_TOKEN:
+        required: false
+      SOPS_AGE_KEY:
+        required: false
+      TF_STATE_PASSPHRASE:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Must match the bucket in infra/backend.tf.
+      STATE_BUCKET: house-manager-tfstate
+      SOPS_VERSION: 3.11.0
+      # sha256 of sops-v3.11.0.linux.amd64, from that release's checksums file.
+      SOPS_SHA256: 775f1384d55decfad228e7196a3f683791914f92a473f78fc47700531c29dfef
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      # Shared by the steps below: ok/bad print one line each (and add it to
+      # the run summary); bearer feeds curl a header without putting the
+      # token on its command line (curl -H @<(bearer "$TOKEN")).
+      - name: Prepare
+        run: |
+          cat > "$RUNNER_TEMP/check.sh" <<'EOF'
+          failed=0
+          ok() { echo "✓ $*"; echo "- ✓ $*" >> "$GITHUB_STEP_SUMMARY"; }
+          bad() { echo "::error::✗ $*"; echo "- ✗ $*" >> "$GITHUB_STEP_SUMMARY"; failed=1; }
+          skip() { echo "::notice::– $*"; echo "- – $*" >> "$GITHUB_STEP_SUMMARY"; }
+          bearer() { printf 'Authorization: Bearer %s\n' "$1"; }
+          EOF
+          echo "### Bootstrap check" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bootstrap secrets are set
+        id: secrets
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+          TF_STATE_PASSPHRASE: ${{ secrets.TF_STATE_PASSPHRASE }}
+        run: |
+          . "$RUNNER_TEMP/check.sh"
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+                      SUPABASE_ACCESS_TOKEN GH_ADMIN_TOKEN SOPS_AGE_KEY TF_STATE_PASSPHRASE; do
+            if [[ -n "${!name}" ]]; then
+              ok "$name is set"
+            else
+              bad "$name is missing: add it in Settings → Secrets and variables → Actions (infra/BOOTSTRAP.md)"
+            fi
+          done
+          exit "$failed"
+
+      - name: Cloudflare token is valid and can read Pages
+        id: cloudflare
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          . "$RUNNER_TEMP/check.sh"
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            bad "Cloudflare: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are both needed"
+            exit "$failed"
+          fi
+          api=https://api.cloudflare.com/client/v4
+          out="$RUNNER_TEMP/cloudflare.json"
+          get() {
+            curl -sS --max-time 20 -o "$out" -w '%{http_code}' -H @<(bearer "$CLOUDFLARE_API_TOKEN") "$api$1" || true
+          }
+          # An account-owned token verifies under the account, a user token under /user.
+          verified=""
+          for path in "/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify" /user/tokens/verify; do
+            if [[ "$(get "$path")" == 200 ]] && jq -e '.success and .result.status == "active"' "$out" >/dev/null; then
+              verified="$path"
+              expires="$(jq -r '.result.expires_on // empty' "$out")"
+              break
+            fi
+          done
+          if [[ -n "$verified" ]]; then
+            ok "Cloudflare token is active${expires:+ (expires $expires)}"
+          else
+            bad "Cloudflare token is not valid or not active: create one under My Profile → API Tokens (infra/BOOTSTRAP.md)"
+          fi
+          code="$(get "/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects")"
+          if [[ "$code" == 200 ]] && jq -e '.success' "$out" >/dev/null; then
+            ok "Cloudflare token can list the account's Pages projects"
+          else
+            bad "Cloudflare token cannot list Pages projects (HTTP $code): give it Account → Cloudflare Pages: Edit on this account, and check CLOUDFLARE_ACCOUNT_ID"
+          fi
+          rm -f "$out"
+          exit "$failed"
+
+      - name: R2 keys can reach the state bucket
+        id: r2
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          . "$RUNNER_TEMP/check.sh"
+          if [[ -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            bad "R2: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and CLOUDFLARE_ACCOUNT_ID are all needed"
+            exit "$failed"
+          fi
+          if err="$(aws s3api head-bucket --bucket "$STATE_BUCKET" \
+                      --endpoint-url "https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com" 2>&1 >/dev/null)"; then
+            ok "R2 keys can reach the bucket $STATE_BUCKET"
+          else
+            case "$err" in
+              *404*) hint="the bucket does not exist: create $STATE_BUCKET in Cloudflare → R2" ;;
+              *403*|*401*) hint="the keys have no access: give the R2 token Object Read & Write on $STATE_BUCKET" ;;
+              *) hint="$(printf %s "$err" | tail -1)" ;;
+            esac
+            bad "R2 keys cannot reach the bucket $STATE_BUCKET: $hint (infra/BOOTSTRAP.md)"
+          fi
+          exit "$failed"
+
+      - name: Supabase token is valid
+        id: supabase
+        continue-on-error: true
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          . "$RUNNER_TEMP/check.sh"
+          if [[ -z "$SUPABASE_ACCESS_TOKEN" ]]; then
+            bad "Supabase: SUPABASE_ACCESS_TOKEN is not set"
+            exit "$failed"
+          fi
+          code="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' \
+                    -H @<(bearer "$SUPABASE_ACCESS_TOKEN") https://api.supabase.com/v1/projects || true)"
+          if [[ "$code" == 200 ]]; then
+            ok "Supabase token can list projects"
+          else
+            bad "Supabase token was refused (HTTP $code): create a new one at supabase.com/dashboard/account/tokens (infra/BOOTSTRAP.md)"
+          fi
+          exit "$failed"
+
+      - name: GitHub admin token can manage Actions secrets
+        id: github
+        continue-on-error: true
+        env:
+          GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          . "$RUNNER_TEMP/check.sh"
+          if [[ -z "$GH_ADMIN_TOKEN" ]]; then
+            bad "GitHub: GH_ADMIN_TOKEN is not set"
+            exit "$failed"
+          fi
+          code="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H @<(bearer "$GH_ADMIN_TOKEN") \
+                    -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
+                    "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets/public-key" || true)"
+          if [[ "$code" == 200 ]]; then
+            ok "GH_ADMIN_TOKEN can read this repository's Actions secrets key"
+          else
+            bad "GH_ADMIN_TOKEN was refused (HTTP $code): a fine-grained token for $GITHUB_REPOSITORY only, with Secrets: Read and write and Administration: Read and write (infra/BOOTSTRAP.md)"
+          fi
+          exit "$failed"
+
+      - name: Install sops
+        id: sops_install
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL --max-time 60 -o "$RUNNER_TEMP/bin/sops" \
+            "https://github.com/getsops/sops/releases/download/v$SOPS_VERSION/sops-v$SOPS_VERSION.linux.amd64"
+          echo "$SOPS_SHA256  $RUNNER_TEMP/bin/sops" | sha256sum --check --quiet
+          chmod +x "$RUNNER_TEMP/bin/sops"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: SOPS_AGE_KEY decrypts infra/secrets.enc.yaml
+        id: sops
+        continue-on-error: true
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          . "$RUNNER_TEMP/check.sh"
+          file=infra/secrets.enc.yaml
+          if [[ ! -f "$file" ]]; then
+            skip "$file does not exist yet: create it with infra/scripts/encrypt-secrets.sh (infra/BOOTSTRAP.md)"
+            exit 0
+          fi
+          if [[ -z "$SOPS_AGE_KEY" ]]; then
+            bad "SOPS: SOPS_AGE_KEY is not set"
+            exit "$failed"
+          fi
+          # Only key names leave this pipe: the problems jq finds, never a value.
+          if problems="$(sops -d --output-type json "$file" 2>/dev/null | jq -r '
+                . as $s
+                | ["vapid_public_key", "vapid_private_key", "vapid_subject", "push_secret",
+                   "google_client_id", "google_client_secret", "supabase_db_password", "supabase_db_url"]
+                | map(select(($s[.] | type) != "string" or $s[.] == "")) | join(", ")')"; then
+            ok "SOPS_AGE_KEY decrypts $file"
+            if [[ -n "$problems" ]]; then
+              bad "$file has missing or empty keys: $problems (infra/secrets.example.yaml shows the shape)"
+            else
+              ok "$file has every expected key"
+            fi
+          else
+            bad "SOPS_AGE_KEY cannot decrypt $file: it must be the private key (AGE-SECRET-KEY-…) whose public key is in infra/.sops.yaml"
+          fi
+          exit "$failed"
+
+      - name: TF_STATE_PASSPHRASE is long enough
+        id: passphrase
+        continue-on-error: true
+        env:
+          TF_STATE_PASSPHRASE: ${{ secrets.TF_STATE_PASSPHRASE }}
+        run: |
+          . "$RUNNER_TEMP/check.sh"
+          if (( ${#TF_STATE_PASSPHRASE} >= 32 )); then
+            ok "TF_STATE_PASSPHRASE has at least 32 characters"
+          else
+            bad "TF_STATE_PASSPHRASE is shorter than 32 characters: generate one with openssl rand -base64 32, and keep a copy in your password manager"
+          fi
+          exit "$failed"
+
+      - name: Result
+        if: always()
+        env:
+          FAILED: ${{ contains(steps.*.outcome, 'failure') }}
+        run: |
+          if [[ "$FAILED" == true ]]; then
+            echo "::error::Some bootstrap checks failed: see the ✗ lines above (infra/BOOTSTRAP.md)."
+            exit 1
+          fi
+          echo "✓ Every bootstrap check passed."
