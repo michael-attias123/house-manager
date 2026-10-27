@@ -9,32 +9,30 @@ You create them once, by hand, in this order. After that, every change is a PR.
 three things it cannot create for itself:
 
 1. **Credentials.** An API token per provider. A token created by `apply` cannot authorize that same `apply`.
-2. **A place for the state.** An R2 bucket. Without state there is no `apply`, so the state cannot manage its own storage.
+2. **A place for the state.** A table in the project's own Postgres, reached by a login only you can give a password. Without state there is no `apply`, so the state cannot set up its own access.
 3. **Keys to decrypt secrets.** The SOPS age key and the state passphrase. A key stored inside what it decrypts is useless.
 
 **The rules for layer zero:**
 
 | Rule | What it means here |
 |---|---|
-| Minimal | Only what truly cannot be automated: 7 items (3–4 after OIDC and a secret manager). |
+| Minimal | Only what truly cannot be automated: 6 items (2–3 after OIDC and a secret manager). |
 | Documented | This file: where to create each item, which permissions, where to paste it. |
 | Least privilege | Each token gets only what IaC needs, on one account or repo, never admin. |
 | Rotatable | Each item has rotation steps below, and an expiry where the provider allows one. |
 | Verifiable | The read-only **Bootstrap check** workflow (`bootstrap-check.yml`) confirms every secret exists and every token works, before the first plan. |
-| Import, don't recreate | Anything made by hand (the bucket, the existing Pages and Supabase projects) is `import`ed (`imports.tf`), then described in code and protected by `prevent_destroy`. |
+| Import, don't recreate | Anything that already exists (the Pages and Supabase projects) is `import`ed (`imports.tf`), then described in code and protected by `prevent_destroy`. |
 
 ## Inventory
 
 | # | Item | Created in | Stored in | Least privilege | After OIDC |
 |---|---|---|---|---|---|
-| 1 | R2 bucket `house-manager-tfstate` | Cloudflare, R2 | (imported later) | – | stays |
-| 2 | R2 access key + secret | R2 API tokens page | GitHub: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Object Read & Write, that bucket only | stays (R2 has no OIDC) |
-| 3 | Cloudflare API token | My Profile → API Tokens | GitHub: `CLOUDFLARE_API_TOKEN` | Pages: Edit, Workers R2 Storage: Edit, one account | moves into the secret manager |
-| 4 | Supabase access token | supabase.com/dashboard/account/tokens | GitHub: `SUPABASE_ACCESS_TOKEN` | not scopable; give it an expiry | moves into the secret manager |
-| 5 | GitHub fine-grained PAT | GitHub, Developer settings | GitHub: `GH_ADMIN_TOKEN` | this repo: Administration, Secrets, Metadata | moves, or becomes a GitHub App |
-| 6 | age key | `age-keygen`, locally | GitHub: `SOPS_AGE_KEY` + your password manager | – | **removed** (the secret manager replaces SOPS) |
-| 7 | State passphrase | a random string | GitHub: `TF_STATE_PASSPHRASE` + your password manager | – | stays (state encryption) |
-| – | Cloudflare account ID | Cloudflare dashboard | GitHub: `CLOUDFLARE_ACCOUNT_ID` + `prod.auto.tfvars` | not a credential (R2 endpoint) | stays |
+| 1 | State database login: the `tofu_state` role's password and its connection string | Supabase SQL editor + the Connect dialog | GitHub: `TF_STATE_PG_CONN` | the one table `tofu_state.states`, rows only (the migration grants nothing else) | stays (the backend needs it before anything else) |
+| 2 | Cloudflare API token | My Profile → API Tokens | GitHub: `CLOUDFLARE_API_TOKEN` | Pages: Edit, one account | moves into the secret manager |
+| 3 | Supabase access token | supabase.com/dashboard/account/tokens | GitHub: `SUPABASE_ACCESS_TOKEN` | not scopable; give it an expiry | moves into the secret manager |
+| 4 | GitHub fine-grained PAT | GitHub, Developer settings | GitHub: `GH_ADMIN_TOKEN` | this repo: Administration, Secrets, Metadata | moves, or becomes a GitHub App |
+| 5 | age key | `age-keygen`, locally | GitHub: `SOPS_AGE_KEY` + your password manager | – | **removed** (the secret manager replaces SOPS) |
+| 6 | State passphrase | a random string | GitHub: `TF_STATE_PASSPHRASE` + your password manager | – | stays (state encryption) |
 | – | Google OAuth client | Google Cloud console | values in `secrets.enc.yaml` | – | always manual (no API) |
 
 Not bootstrap, but also manual: the Google consent screen and Test users, and
@@ -52,31 +50,40 @@ gh secret set NAME --repo <owner>/house-manager
 
 Keep a note of each token's expiry date in your calendar.
 
-### 1. R2 bucket
+### 1. State database login → `TF_STATE_PG_CONN`
 
-1. Cloudflare dashboard → **R2 Object Storage**. The first time, R2 has to be
-   enabled for the account (it may ask for a payment method; the state is far
-   inside the free tier).
-2. **Create bucket**: name `house-manager-tfstate`, location automatic,
-   default jurisdiction. Leave public access off.
+The state lives in this project's own database, in the table
+`tofu_state.states`. The migration `20261028000100_tofu_state.sql` (applied
+by the Database migrations workflow) creates it with a role `tofu_state`
+that can read and write that one table and nothing else, and that cannot log
+in yet. No storage account or credit card is needed. OpenTofu encrypts the
+state before writing it, so the table holds ciphertext only.
 
-### 2. R2 access key
+1. Supabase → **SQL Editor**. Generate a long random password in your
+   password manager, then run:
+   ```sql
+   alter role tofu_state with login password '<the password>';
+   ```
+   The Supabase SQL editor may keep a query history: clear that entry, or
+   rotate the password once afterwards (see Rotation) from a local `psql`.
+2. Click **Connect** on the project's page and copy the **Session pooler**
+   string (port **5432**). Not the Transaction pooler (6543): it hands each
+   statement to a different connection and the state lock is lost. Not the
+   Direct connection either: it is IPv6-only, which GitHub runners cannot reach.
+3. In that string, replace the user `postgres.<ref>` with
+   `tofu_state.<ref>` and the password with the one from step 1:
+   ```
+   postgresql://tofu_state.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+   ```
+   A password with `@`, `:`, `/` or `#` has to be URL-encoded there; the
+   simplest is a password of letters and digits only.
+4. Paste it into `TF_STATE_PG_CONN`.
 
-1. On the R2 overview, open the page for managing R2 API tokens and create a
-   token (account or user token; either works).
-2. Permissions: **Object Read & Write**. Scope: specific buckets only,
-   `house-manager-tfstate`. Set a TTL if you want an expiry.
-3. The result page shows the S3 credentials once. Paste them:
+A free Supabase project pauses after a week without activity. The app and
+the daily price update keep it awake; if it ever pauses, plans fail until it
+is resumed in the dashboard. Nothing is lost.
 
-   | Shown as | GitHub secret |
-   |---|---|
-   | Access Key ID | `R2_ACCESS_KEY_ID` |
-   | Secret Access Key | `R2_SECRET_ACCESS_KEY` |
-
-   Ignore the token value and the endpoint on that page: CI builds the
-   endpoint from `CLOUDFLARE_ACCOUNT_ID`.
-
-### 3. Tokens
+### 2. Tokens
 
 **Cloudflare API token** → `CLOUDFLARE_API_TOKEN`
 
@@ -86,7 +93,6 @@ Keep a note of each token's expiry date in your calendar.
    | Scope | Permission | Level | Why |
    |---|---|---|---|
    | Account | Cloudflare Pages | Edit | the Pages project, build settings, env vars |
-   | Account | Workers R2 Storage | Edit | the state bucket resource (the backend itself uses the R2 key) |
    | Account | Account Settings | Read | only if the Bootstrap check's verify step needs it |
 
    Only if you set `pages_custom_domain` on a Cloudflare zone and the plan
@@ -121,7 +127,7 @@ Keep a note of each token's expiry date in your calendar.
 
    Nothing else.
 
-### 4. age key
+### 3. age key
 
 ```bash
 mkdir -p ~/.config/sops/age
@@ -140,20 +146,14 @@ On macOS, sops looks in `~/Library/Application Support/sops/age/keys.txt`;
 `encrypt-secrets.sh` also finds `~/.config/...`, and for other tools
 `export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt`.
 
-### 5. State passphrase → `TF_STATE_PASSPHRASE`
+### 4. State passphrase → `TF_STATE_PASSPHRASE`
 
 Generate a random string of 32+ characters in your password manager (at least
 16 is required), save it there, and paste it into `TF_STATE_PASSPHRASE`.
 OpenTofu derives the state and plan encryption key from it
 (`encryption.tf`). Losing it makes the state unreadable (recovery below).
 
-### 6. `CLOUDFLARE_ACCOUNT_ID`
-
-The account ID is in the dashboard URL (`dash.cloudflare.com/<account_id>/...`)
-and on the account's overview page. Paste it into the `CLOUDFLARE_ACCOUNT_ID`
-secret, and keep it for step 8.
-
-### 7. Encrypt the app secrets
+### 5. Encrypt the app secrets
 
 Gather the values first (`infra/secrets.example.yaml` says where each comes
 from). Reuse the live ones: the current VAPID pair (new keys make every phone
@@ -174,14 +174,14 @@ The script refuses invalid values (a `VAPID_SUBJECT` without `mailto:`, a
 padded or truncated key, a short push secret, a non-postgres URL) without
 printing them. Values never appear on the command line.
 
-### 8. Fill `prod.auto.tfvars`
+### 6. Fill `prod.auto.tfvars`
 
 Replace every `REPLACE_ME`. The values must match what exists today exactly;
 a wrong name or region makes the plan want to replace a resource.
 
 | Variable | Where |
 |---|---|
-| `cloudflare_account_id` | step 6 |
+| `cloudflare_account_id` | the dashboard URL (`dash.cloudflare.com/<account_id>/...`) or the account's overview page; 32 hex characters, not a secret |
 | `pages_project_name` | Workers & Pages, the project's name (may differ from the `*.pages.dev` subdomain) |
 | `pages_custom_domain` | `""`, or your custom domain |
 | `supabase_project_ref` | the `<ref>` in the Project URL (also on the project's general settings page) |
@@ -189,18 +189,19 @@ a wrong name or region makes the plan want to replace a resource.
 | `supabase_project_name` | the project's name in the dashboard |
 | `supabase_region` | `npx supabase projects list` (REGION column); Frankfurt is `eu-central-1` |
 
-`github_owner`, `github_repository`, `production_branch`, `state_bucket_name`
-and `extra_redirect_urls` are already set. Commit.
+`github_owner`, `github_repository`, `production_branch` and
+`extra_redirect_urls` are already set. Commit.
 
-### 9. Run the Bootstrap check
+### 7. Run the Bootstrap check
 
 Push the branch, then **Actions → Bootstrap check → Run workflow**, on that
 branch. It is read-only: it checks that
-every bootstrap secret exists and that each token is accepted by its
-provider. A failure names the secret or token to fix. Continue only when it
+every bootstrap secret exists, that each token is accepted by its
+provider, and that `TF_STATE_PG_CONN` logs in as `tofu_state` and can hold
+the state lock. A failure names the secret or token to fix. Continue only when it
 is green.
 
-### 10. Open a PR and read the plan
+### 8. Open a PR and read the plan
 
 Open a PR from the branch. The **infra** workflow (`infra.yml`) runs fmt,
 validate (OpenTofu and Terraform), tflint, trivy and `plan`, and posts the plan
@@ -254,17 +255,16 @@ manual edits, and so does it for anything else managed here.
 ## Rotation
 
 General pattern: create the new credential, replace the GitHub secret, run
-**Bootstrap check**, then revoke the old one. No PR needed for items 2–5.
+**Bootstrap check**, then revoke the old one. No PR needed for items 1–4.
 
 | Item | Rotate |
 |---|---|
-| 1 Bucket | Not rotated. |
-| 2 R2 key | Create a new R2 token (same scope), replace both `R2_*` secrets, run the check, delete the old token. |
-| 3 Cloudflare token | Roll it on the API Tokens page (or create a new one with the same permissions), replace `CLOUDFLARE_API_TOKEN`, check, delete the old one. |
-| 4 Supabase token | Generate a new token, replace `SUPABASE_ACCESS_TOKEN` (shared with Database migrations), check, delete the old one. |
-| 5 GitHub PAT | Regenerate it on the token's page (keeps the permissions) or create a new one, replace `GH_ADMIN_TOKEN`, check. |
-| 6 age key | See below. |
-| 7 Passphrase | See below. |
+| 1 State login | From a local `psql` as postgres (or the SQL editor): `alter role tofu_state password '<new>'`, replace `TF_STATE_PG_CONN`, run the check. The old password stops working at once, so do it when no infra run is in progress. |
+| 2 Cloudflare token | Roll it on the API Tokens page (or create a new one with the same permissions), replace `CLOUDFLARE_API_TOKEN`, check, delete the old one. |
+| 3 Supabase token | Generate a new token, replace `SUPABASE_ACCESS_TOKEN` (shared with Database migrations), check, delete the old one. |
+| 4 GitHub PAT | Regenerate it on the token's page (keeps the permissions) or create a new one, replace `GH_ADMIN_TOKEN`, check. |
+| 5 age key | See below. |
+| 6 Passphrase | See below. |
 
 **age key.** CI must be able to decrypt `main` at every moment, so the file
 is encrypted for both keys before the secret changes. Run the sops commands
@@ -339,12 +339,13 @@ the database, and database backups are a separate topic.
 
 | What was lost | Recover |
 |---|---|
-| GitHub secrets (or the repo) | Recreate items 2–7 (tokens are new; age key and passphrase from the password manager), run Bootstrap check, then an apply restores everything else. |
-| The state (bucket emptied, or passphrase lost) | Create an empty bucket (or a new passphrase), then plan: `imports.tf` adopts every resource again. Continue as in "First import". |
-| The age key, with no copy | `secrets.enc.yaml` is unreadable. New age key (step 4), then `encrypt-secrets.sh --force` with new values: new VAPID pair, new push secret, new Google client secret, reset database password. |
+| GitHub secrets (or the repo) | Recreate items 1–6 (tokens and the state password are new; age key and passphrase from the password manager), run Bootstrap check, then an apply restores everything else. |
+| The state (rows deleted, or passphrase lost) | `delete from tofu_state.states;` (or a new passphrase), then plan: `imports.tf` adopts every resource again. Continue as in "First import". |
+| The Supabase project itself | The state went with it (it lives in that database). Restore or recreate the project, run the migrations, redo item 1, then plan: `imports.tf` adopts everything again. |
+| The age key, with no copy | `secrets.enc.yaml` is unreadable. New age key (step 3), then `encrypt-secrets.sh --force` with new values: new VAPID pair, new push secret, new Google client secret, reset database password. |
 | A leaked token | Revoke it at the provider first, then rotate. |
 | A Pages project or settings changed by hand | The next plan shows it; apply puts the code back. |
-| Everything | Recreate items 1–7, restore the database from a backup, apply. |
+| Everything | Restore the database from a backup, recreate items 1–6, apply. |
 
 Keep in the password manager: `keys.txt` (age), the state passphrase. Tokens
 can always be regenerated.
@@ -356,14 +357,13 @@ a short-lived OIDC token (see `SECRETS.md`). Then:
 
 | Item | Today | After |
 |---|---|---|
-| 1 Bucket | manual | same |
-| 2 R2 key | GitHub secret | GitHub secret, or in the secret manager |
-| 3 Cloudflare token | GitHub secret | in the secret manager |
-| 4 Supabase token | GitHub secret | in the secret manager |
-| 5 GitHub PAT | GitHub secret | in the secret manager, or a GitHub App |
-| 6 age key | GitHub secret | **gone** |
-| 7 Passphrase | GitHub secret | GitHub secret, or in the secret manager |
+| 1 State login | GitHub secret | GitHub secret, or in the secret manager |
+| 2 Cloudflare token | GitHub secret | in the secret manager |
+| 3 Supabase token | GitHub secret | in the secret manager |
+| 4 GitHub PAT | GitHub secret | in the secret manager, or a GitHub App |
+| 5 age key | GitHub secret | **gone** |
+| 6 Passphrase | GitHub secret | GitHub secret, or in the secret manager |
 | + secret manager access | – | an OIDC trust (role, identity ID): config, not a secret |
 
-Layer zero shrinks to the bucket, the R2 key, the passphrase and the OIDC
-trust: 3–4 items.
+Layer zero shrinks to the state login, the passphrase and the OIDC trust:
+2–3 items.

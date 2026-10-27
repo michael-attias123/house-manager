@@ -83,7 +83,7 @@ module "repo" {
 
   repository = var.github_repository
 
-  # App secrets only. The bootstrap secrets (provider tokens, R2 keys, age key,
+  # App secrets only. The bootstrap secrets (provider tokens, state connection, age key,
   # state passphrase) are set by hand and never managed here.
   actions_secrets = {
     SUPABASE_DB_URL      = local.secrets.supabase_db_url
@@ -93,17 +93,4 @@ module "repo" {
   protected_branch = var.production_branch
   # The jobs of .github/workflows/ci.yml.
   required_checks = ["web", "database"]
-}
-
-# The state bucket is created by hand during bootstrap (the state cannot
-# create its own storage) and imported in imports.tf.
-resource "cloudflare_r2_bucket" "state" {
-  account_id = var.cloudflare_account_id
-  name       = var.state_bucket_name
-  # jurisdiction defaults to "default"; location is left unset on purpose:
-  # it can only be chosen at creation and setting it forces a replacement.
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }

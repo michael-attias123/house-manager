@@ -1,6 +1,6 @@
 # Provider downloads and local working data.
 .terraform/
-# State and plans never live in git (state is in R2, encrypted).
+# State and plans never live in git (state is in Supabase Postgres, encrypted).
 *.tfstate
 *.tfstate.*
 *.tfplan

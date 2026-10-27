@@ -27,8 +27,8 @@ Any store that produces the same `values` map is a drop-in replacement. The
 plan after the swap must be empty: same values, same resources.
 
 Values read through a data source are stored in the state. OpenTofu encrypts
-the state (`encryption.tf`); on Terraform it is only encrypted at rest by R2
-(see `MIGRATING.md`).
+the state (`encryption.tf`); on Terraform it is stored in plaintext in the
+`tofu_state.states` table (see `MIGRATING.md`).
 
 ## Choosing a store
 
@@ -223,9 +223,8 @@ Rollback before step 6 is the same one line back to `./modules/secrets/sops`.
 |---|---|
 | `SOPS_AGE_KEY` | removed |
 | `CLOUDFLARE_API_TOKEN`, `SUPABASE_ACCESS_TOKEN`, `GH_ADMIN_TOKEN` | stored in the manager; CI reads them after the OIDC login and exports them as env vars for the providers |
-| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | can move too (the backend needs them before init, so CI fetches them in the same step) |
+| `TF_STATE_PG_CONN` | can move too (the backend needs it before init, so CI fetches it in the same step) |
 | `TF_STATE_PASSPHRASE` | can move too, same way |
-| `CLOUDFLARE_ACCOUNT_ID` | stays as config |
 
 With Bitwarden's access token instead of OIDC, that token is the one stored
 secret left in GitHub. `BOOTSTRAP.md` ("After OIDC and a secret manager")

@@ -25,7 +25,5 @@ supabase_project_name = "REPLACE_ME"
 # Central EU (Frankfurt), as docs/setup.md recommends.
 supabase_region = "eu-central-1"
 
-# The bootstrap bucket; must match backend.tf.
-state_bucket_name = "house-manager-tfstate"
 
 extra_redirect_urls = ["http://localhost:5173/**"]

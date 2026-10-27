@@ -108,17 +108,6 @@ variable "supabase_region" {
   }
 }
 
-variable "state_bucket_name" {
-  description = "R2 bucket that holds the state. Must equal the bucket in backend.tf."
-  type        = string
-  default     = "house-manager-tfstate"
-
-  validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.state_bucket_name))
-    error_message = "state_bucket_name must be a valid R2 bucket name (3-63 lowercase letters, digits, hyphens)."
-  }
-}
-
 variable "extra_redirect_urls" {
   description = "Auth redirect URLs beyond the ones derived from the hosting URL (local development)."
   type        = list(string)

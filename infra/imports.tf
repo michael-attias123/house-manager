@@ -5,7 +5,6 @@
 # ID formats, from each provider's docs at the pinned tag:
 #   cloudflare_pages_project        <account_id>/<project_name>
 #   cloudflare_pages_domain         <account_id>/<project_name>/<domain_name>
-#   cloudflare_r2_bucket            <account_id>/<bucket_name>/<jurisdiction>
 #   supabase_project                <project_ref>
 #   supabase_settings               <project_ref>
 #   supabase_edge_function_secrets  <project_ref>
@@ -47,11 +46,6 @@ import {
 
   to = module.hosting.cloudflare_pages_domain.this[each.key]
   id = "${var.cloudflare_account_id}/${var.pages_project_name}/${each.key}"
-}
-
-import {
-  to = cloudflare_r2_bucket.state
-  id = "${var.cloudflare_account_id}/${var.state_bucket_name}/default"
 }
 
 import {
