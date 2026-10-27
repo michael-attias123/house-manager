@@ -5,6 +5,11 @@
 # environment as TF_VAR_state_passphrase (the TF_STATE_PASSPHRASE secret in CI,
 # bootstrap item 7). It must be at least 16 characters.
 #
+# Never change the passphrase in place: the state records the key provider,
+# and a new passphrase under the same name makes it unreadable. Rotation adds
+# a second key provider with this one as fallback, then removes the old one;
+# follow infra/BOOTSTRAP.md, section "Rotation".
+#
 # Moving to Terraform: decrypt the state first, then delete this file.
 #   1. Uncomment the "unencrypted" method, and in the state block set
 #      `method = method.unencrypted.migrate`, drop `enforced = true`, and add
