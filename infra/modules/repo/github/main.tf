@@ -16,6 +16,11 @@ resource "github_actions_secret" "this" {
   value = var.actions_secrets[each.key]
 }
 
+# Signed commits stay optional: requiring them would block merging any PR with
+# an unsigned commit (from a phone, a web editor or an automated session), for
+# little gain with a single maintainer. Turn it on with require_signed_commits
+# once every commit is signed.
+#trivy:ignore:GIT-0004
 resource "github_branch_protection" "this" {
   count = var.protected_branch == "" ? 0 : 1
 
