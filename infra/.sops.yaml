@@ -1,0 +1,19 @@
+# SOPS configuration for infra/secrets.enc.yaml (see infra/BOOTSTRAP.md, step 4).
+#
+# Replace age1REPLACE_ME with your age PUBLIC key ("age1..."), from:
+#   age-keygen -o ~/.config/sops/age/keys.txt    (once; prints "Public key: age1...")
+#   age-keygen -y ~/.config/sops/age/keys.txt    (prints it again)
+# A public key is safe to commit. The private key ("AGE-SECRET-KEY-1...") never
+# goes in the repo: it lives in keys.txt, your password manager, and the
+# SOPS_AGE_KEY GitHub secret.
+#
+# Several recipients (for example a second, offline backup key) are comma
+# separated. After changing them, re-encrypt the data key for the new set
+# (from infra/, where sops finds this file):
+#   cd infra && sops updatekeys secrets.enc.yaml
+#
+# infra/scripts/encrypt-secrets.sh reads the recipient from this file and
+# refuses to run while it is still the placeholder.
+creation_rules:
+  - path_regex: secrets\.enc\.yaml$
+    age: age1REPLACE_ME
