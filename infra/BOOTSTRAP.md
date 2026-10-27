@@ -217,11 +217,19 @@ as a PR comment. Read it as described next. Merging applies exactly that plan.
 | `github_actions_secret`: update | GitHub never returns secret values; apply re-sets them |
 | `supabase_settings` (auth): Google secret | it is returned hashed; apply re-sets it |
 | `cloudflare_pages_project`: env vars | secret-typed values cannot be read; `VITE_*` become plain text, as intended |
+| `supabase_settings` (auth): in-place update | the import reads the whole auth config; the code manages only its own keys. The diff prints as `(sensitive value)` because it holds the Google secret, so read the `auth_site_url` and `auth_redirect_urls` outputs instead |
+| `supabase_edge_function_secrets`: removals | any Edge Function secret other than the four VAPID/push ones is deleted |
+| `terraform_data.guards`: create | a no-op resource that carries the value checks (VAPID format, `mailto:`) |
 
 Anything else is drift between the dashboards and the code: a redirect URL,
 the Site URL, a build setting. Decide per line: fix the code (or
 `prod.auto.tfvars`) if the dashboard is right, keep the diff if the code is
 right.
+
+**Before the first plan:** the Cloudflare provider cannot import a Pages
+project that has a variable of type *Secret*. On the project's variables page,
+change every Secret variable to *Text* (or delete it; the code re-creates it).
+None of the app's variables is a secret: they all end up in the public bundle.
 
 **If the plan wants to replace or destroy anything: STOP. Do not merge.**
 
