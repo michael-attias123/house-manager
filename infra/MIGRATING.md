@@ -50,11 +50,10 @@ tofu init
 tofu apply -refresh-only     # writes the state back, now unencrypted
 ```
 
-Check that it worked: the object `prod/terraform.tfstate` in the
-`house-manager-tfstate` bucket is ordinary state JSON (`"version": 4`,
-`"resources"`), not an object with `"encrypted_data"`. From now on the state
-holds secret values in plaintext, protected only by R2's encryption at rest
-and the R2 key's scope.
+Check that it worked: `select left(data, 200) from tofu_state.states;` shows
+ordinary state JSON (`"version": 4`, `"resources"`), not an object with
+`"encrypted_data"`. From now on the state holds secret values in plaintext,
+protected only by the `tofu_state` role's password and the table's grants.
 
 ### 2. Remove the OpenTofu-only parts
 
@@ -65,7 +64,8 @@ and the R2 key's scope.
 
 1. In `infra.yml` (and locally), replace the OpenTofu setup action with
    `hashicorp/setup-terraform` and `tofu` with `terraform`.
-2. Same `backend.tf`, same bucket and key, same `AWS_*` environment:
+2. Same `backend.tf` (the pg backend is in both tools; Terraform's table is
+   always `states`, the name used here), same `PG_CONN_STR`:
    ```bash
    terraform init -reconfigure
    ```
@@ -131,8 +131,8 @@ own, the way `encryption.tf` does.
      }
    }
    ```
-   (the same for `plan`), set `TF_STATE_PASSPHRASE` (bootstrap item 7), run
-   `tofu apply -refresh-only`, check the bucket object now has
+   (the same for `plan`), set `TF_STATE_PASSPHRASE` (bootstrap item 6), run
+   `tofu apply -refresh-only`, check the row in `tofu_state.states` now has
    `"encrypted_data"`, then remove the fallback and the `unencrypted` method
    and add `enforced = true`.
 4. `tofu plan` must be empty.

@@ -12,11 +12,7 @@ on:
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: false
-      CLOUDFLARE_ACCOUNT_ID:
-        required: false
-      R2_ACCESS_KEY_ID:
-        required: false
-      R2_SECRET_ACCESS_KEY:
+      TF_STATE_PG_CONN:
         required: false
       SUPABASE_ACCESS_TOKEN:
         required: false
@@ -38,8 +34,6 @@ jobs:
       run:
         shell: bash
     env:
-      # Must match the bucket in infra/backend.tf.
-      STATE_BUCKET: house-manager-tfstate
       SOPS_VERSION: 3.11.0
       # sha256 of sops-v3.11.0.linux.amd64, from that release's checksums file.
       SOPS_SHA256: 775f1384d55decfad228e7196a3f683791914f92a473f78fc47700531c29dfef
@@ -66,16 +60,14 @@ jobs:
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          TF_STATE_PG_CONN: ${{ secrets.TF_STATE_PG_CONN }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
           TF_STATE_PASSPHRASE: ${{ secrets.TF_STATE_PASSPHRASE }}
         run: |
           . "$RUNNER_TEMP/check.sh"
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+          for name in CLOUDFLARE_API_TOKEN TF_STATE_PG_CONN \
                       SUPABASE_ACCESS_TOKEN GH_ADMIN_TOKEN SOPS_AGE_KEY TF_STATE_PASSPHRASE; do
             if [[ -n "${!name}" ]]; then
               ok "$name is set"
@@ -90,11 +82,16 @@ jobs:
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           . "$RUNNER_TEMP/check.sh"
-          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
-            bad "Cloudflare: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are both needed"
+          # Not a secret: the account id is in infra/prod.auto.tfvars.
+          CLOUDFLARE_ACCOUNT_ID="$(sed -n 's/^cloudflare_account_id *= *"\([0-9a-f]\{32\}\)".*/\1/p' infra/prod.auto.tfvars)"
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            bad "Cloudflare: CLOUDFLARE_API_TOKEN is not set"
+            exit "$failed"
+          fi
+          if [[ -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            bad "Cloudflare: set cloudflare_account_id in infra/prod.auto.tfvars (32 hex characters, from the dashboard's account home)"
             exit "$failed"
           fi
           api=https://api.cloudflare.com/client/v4
@@ -120,35 +117,58 @@ jobs:
           if [[ "$code" == 200 ]] && jq -e '.success' "$out" >/dev/null; then
             ok "Cloudflare token can list the account's Pages projects"
           else
-            bad "Cloudflare token cannot list Pages projects (HTTP $code): give it Account → Cloudflare Pages: Edit on this account, and check CLOUDFLARE_ACCOUNT_ID"
+            bad "Cloudflare token cannot list Pages projects (HTTP $code): give it Account → Cloudflare Pages: Edit on this account, and check cloudflare_account_id"
           fi
           rm -f "$out"
           exit "$failed"
 
-      - name: R2 keys can reach the state bucket
-        id: r2
+      # The state lives in Supabase Postgres (infra/backend.tf). Each -c is its
+      # own transaction: through the Transaction pooler the unlock can land on
+      # another connection and fail, which is exactly the problem to catch.
+      - name: The state database connection works
+        id: state
         continue-on-error: true
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          AWS_DEFAULT_REGION: auto
+          TF_STATE_PG_CONN: ${{ secrets.TF_STATE_PG_CONN }}
+          PGCONNECT_TIMEOUT: '15'
         run: |
           . "$RUNNER_TEMP/check.sh"
-          if [[ -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
-            bad "R2: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and CLOUDFLARE_ACCOUNT_ID are all needed"
+          if [[ -z "$TF_STATE_PG_CONN" ]]; then
+            bad "State: TF_STATE_PG_CONN is not set"
             exit "$failed"
           fi
-          if err="$(aws s3api head-bucket --bucket "$STATE_BUCKET" \
-                      --endpoint-url "https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com" 2>&1 >/dev/null)"; then
-            ok "R2 keys can reach the bucket $STATE_BUCKET"
+          conn="$(printf %s "$TF_STATE_PG_CONN" | tr -d '\r\n')"
+          if [[ "$conn" == *:6543/* ]]; then
+            bad "TF_STATE_PG_CONN uses port 6543 (Transaction pooler), which drops the state lock: use the Session pooler string, port 5432"
+          fi
+          if out="$(psql "$conn" -X -At -v ON_ERROR_STOP=1 \
+                      -c 'select current_user' \
+                      -c "select has_table_privilege('tofu_state.states', 'select, insert, update, delete')" \
+                      -c 'select pg_try_advisory_lock(424242)' \
+                      -c 'select pg_advisory_unlock(424242)' 2>&1)"; then
+            mapfile -t r <<< "$out"
+            if [[ "${r[0]}" == tofu_state ]]; then
+              ok "TF_STATE_PG_CONN connects as tofu_state"
+            else
+              bad "TF_STATE_PG_CONN connects as ${r[0]}, not tofu_state: use the tofu_state role, not postgres (least privilege)"
+            fi
+            if [[ "${r[1]}" == t ]]; then
+              ok "tofu_state can read and write tofu_state.states"
+            else
+              bad "tofu_state cannot write tofu_state.states: check that the migration 20261028000100_tofu_state.sql ran"
+            fi
+            if [[ "${r[2]}" == t && "${r[3]}" == t ]]; then
+              ok "State locks hold across statements (session connection)"
+            else
+              bad "State locks do not hold across statements: use the Session pooler string, port 5432"
+            fi
           else
-            case "$err" in
-              *404*) hint="the bucket does not exist: create $STATE_BUCKET in Cloudflare → R2" ;;
-              *403*|*401*) hint="the keys have no access: give the R2 token Object Read & Write on $STATE_BUCKET" ;;
-              *) hint="$(printf %s "$err" | tail -1)" ;;
+            case "$out" in
+              *password*) hint="wrong password, or the role has none yet: alter role tofu_state with login password '…'" ;;
+              *"does not exist"*|*"not found"*) hint="unknown user: the pooler user is tofu_state.<project_ref>" ;;
+              *) hint="$(printf %s "$out" | grep -v -i 'postgres\(ql\)\?://' | tail -1)" ;;
             esac
-            bad "R2 keys cannot reach the bucket $STATE_BUCKET: $hint (infra/BOOTSTRAP.md)"
+            bad "TF_STATE_PG_CONN cannot connect: $hint (infra/BOOTSTRAP.md)"
           fi
           exit "$failed"
 

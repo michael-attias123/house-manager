@@ -15,7 +15,7 @@ OpenTofu-only).
 
 ```
 versions.tf         tool and provider versions; providers read tokens from the env
-backend.tf          state in the R2 bucket house-manager-tfstate (s3 backend)
+backend.tf          state in this project's Supabase Postgres, tofu_state.states (pg backend)
 encryption.tf       OpenTofu only: state and plan encryption (TF_VAR_state_passphrase)
 main.tf             wires the modules together
 variables.tf        root inputs; values in prod.auto.tfvars (committed, nothing secret)
@@ -58,11 +58,10 @@ putting them in shell history:
 
 ```bash
 cd infra
-for v in TF_VAR_state_passphrase AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY \
+for v in TF_VAR_state_passphrase PG_CONN_STR \
          CLOUDFLARE_API_TOKEN SUPABASE_ACCESS_TOKEN GITHUB_TOKEN; do
   read -rsp "$v: " "$v"; echo; export "$v"
 done
-export AWS_ENDPOINT_URL_S3=https://<account_id>.r2.cloudflarestorage.com
 export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt
 
 tofu init
@@ -72,7 +71,7 @@ tofu plan
 | Variable | Bootstrap item |
 |---|---|
 | `TF_VAR_state_passphrase` | `TF_STATE_PASSPHRASE` |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` |
+| `PG_CONN_STR` | `TF_STATE_PG_CONN` (the Session pooler string, port 5432) |
 | `CLOUDFLARE_API_TOKEN`, `SUPABASE_ACCESS_TOKEN` | same names |
 | `GITHUB_TOKEN` | `GH_ADMIN_TOKEN` |
 

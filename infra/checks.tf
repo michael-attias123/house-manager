@@ -71,13 +71,6 @@ check "no_placeholders" {
   }
 }
 
-check "state_bucket_matches_backend" {
-  assert {
-    condition     = var.state_bucket_name == "house-manager-tfstate"
-    error_message = "state_bucket_name differs from the bucket in backend.tf; the imported bucket would not be the one holding the state. Change both together."
-  }
-}
-
 locals {
   # Every non-secret root input that prod.auto.tfvars sets.
   placeholder_inputs = {
@@ -91,7 +84,6 @@ locals {
     supabase_organization_id = var.supabase_organization_id
     supabase_project_name    = var.supabase_project_name
     supabase_region          = var.supabase_region
-    state_bucket_name        = var.state_bucket_name
     extra_redirect_urls      = join(",", var.extra_redirect_urls)
   }
 }

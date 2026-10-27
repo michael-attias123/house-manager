@@ -1440,4 +1440,40 @@ $$;
 drop schema net cascade;
 drop schema vault cascade;
 
+-- ---------------------------------------------------------------------------
+-- OpenTofu state (20261028000100_tofu_state.sql): one role, one table, no API.
+do $$
+declare
+  r text;
+begin
+  assert (select not rolcanlogin from pg_roles where rolname = 'tofu_state'),
+    'tofu_state can log in before the owner sets a password';
+  foreach r in array array['anon', 'authenticated', 'service_role'] loop
+    assert not has_schema_privilege(r, 'tofu_state', 'usage'), r || ' can use schema tofu_state';
+    assert not has_table_privilege(r, 'tofu_state.states', 'select'), r || ' can read the state';
+  end loop;
+  assert not has_schema_privilege('tofu_state', 'tofu_state', 'create'), 'tofu_state can create objects';
+  assert not has_schema_privilege('tofu_state', 'public', 'create'), 'tofu_state can create in public';
+  assert not has_table_privilege('tofu_state', 'public.households', 'select'), 'tofu_state can read app data';
+end;
+$$;
+
+-- What the backend runs: write, read, lock (internal/backend/remote-state/pg).
+set role tofu_state;
+insert into tofu_state.states (name, data) values ('default', 'v1')
+  on conflict (name) do update set data = excluded.data;
+insert into tofu_state.states (name, data) values ('default', 'v2')
+  on conflict (name) do update set data = excluded.data;
+select id as state_id, pg_try_advisory_lock(id) as locked from tofu_state.states where name = 'default' \gset
+reset role;
+select set_config('test.state_locked', :'locked', false);
+do $$
+begin
+  assert (select data from tofu_state.states where name = 'default') = 'v2', 'state not updated in place';
+  assert current_setting('test.state_locked')::boolean, 'advisory lock not taken';
+end;
+$$;
+select pg_advisory_unlock(:state_id);
+delete from tofu_state.states;
+
 \echo 'All database tests passed'

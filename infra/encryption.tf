@@ -3,7 +3,7 @@
 #
 # The key is derived (PBKDF2) from var.state_passphrase, which comes from the
 # environment as TF_VAR_state_passphrase (the TF_STATE_PASSPHRASE secret in CI,
-# bootstrap item 7). It must be at least 16 characters.
+# bootstrap item 6). It must be at least 16 characters.
 #
 # Never change the passphrase in place: the state records the key provider,
 # and a new passphrase under the same name makes it unreadable. Rotation adds
