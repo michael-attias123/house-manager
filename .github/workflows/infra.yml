@@ -1,0 +1,392 @@
+name: Infrastructure
+
+# infra/ (OpenTofu; the HCL also runs on Terraform, see infra/MIGRATING.md).
+# - Pull request: static checks, then a plan, posted as one PR comment that
+#   each run updates.
+# - Main: static checks, then apply, then the Supabase Vault values
+#   (infra/scripts/sync-vault.sh).
+# - Weekly and from the Actions tab: a drift check. A difference opens (or
+#   updates) the issue labelled infra-drift and notifies the admins in the
+#   app; no difference closes it.
+# Plan, apply and the drift check skip with a notice until the bootstrap
+# secrets (infra/BOOTSTRAP.md) and infra/secrets.enc.yaml exist, and run
+# bootstrap-check.yml first.
+on:
+  pull_request:
+    paths: ['infra/**', '.github/workflows/infra.yml', '.github/workflows/bootstrap-check.yml']
+  push:
+    branches: [main]
+    paths: ['infra/**', '.github/workflows/infra.yml', '.github/workflows/bootstrap-check.yml']
+  schedule:
+    - cron: '43 5 * * 1' # Monday 08:43 in Israel (summer time)
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  TOFU_VERSION: 1.10.6
+  TERRAFORM_VERSION: 1.13.4
+  TFLINT_VERSION: v0.59.1
+  TRIVY_VERSION: v0.70.0
+  SOPS_VERSION: 3.11.0
+  # sha256 of sops-v3.11.0.linux.amd64, from that release's checksums file.
+  SOPS_SHA256: 775f1384d55decfad228e7196a3f683791914f92a473f78fc47700531c29dfef
+  TF_IN_AUTOMATION: '1'
+  TF_INPUT: '0'
+
+jobs:
+  # Formatting, validation in both tools, lint and a security scan. Needs no
+  # secrets, so it runs on every event, forks included.
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: infra
+    env:
+      # Only encryption.tf reads it, and validate needs no real value.
+      TF_VAR_state_passphrase: static-checks-only-not-a-real-passphrase
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - run: tofu fmt -check -recursive -diff
+      - name: tofu validate
+        run: |
+          tofu init -backend=false -input=false
+          tofu validate -no-color
+      # Terraform has no state encryption: validate a copy without encryption.tf
+      # (and without tofu's provider cache and lock file).
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - name: terraform validate (without encryption.tf)
+        run: |
+          dir="$RUNNER_TEMP/terraform"
+          rm -rf "$dir" && mkdir -p "$dir"
+          tar --exclude=./.terraform --exclude=./.terraform.lock.hcl -cf - . | tar -xf - -C "$dir"
+          rm -f "$dir/encryption.tf"
+          terraform -chdir="$dir" init -backend=false -input=false
+          terraform -chdir="$dir" validate -no-color
+      - uses: terraform-linters/setup-tflint@v6.3.1
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+      - name: tflint
+        env:
+          # Plugin downloads, without the anonymous rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tflint --init --config "$PWD/.tflint.hcl"
+          tflint --recursive --config "$PWD/.tflint.hcl" --format compact
+      - name: trivy config (HIGH and CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: config
+          scan-ref: infra
+          skip-dirs: infra/.terraform
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+
+  # Decides whether plan, apply and drift can run. Reads secret presence only.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      ready: ${{ steps.gate.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - id: gate
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+          TF_STATE_PASSPHRASE: ${{ secrets.TF_STATE_PASSPHRASE }}
+        run: |
+          missing=()
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+                      SUPABASE_ACCESS_TOKEN GH_ADMIN_TOKEN SOPS_AGE_KEY TF_STATE_PASSPHRASE; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          ready=false
+          if (( ${#missing[@]} > 0 )); then
+            echo "::notice::Plan, apply and the drift check are skipped until these secrets exist: ${missing[*]} (see infra/BOOTSTRAP.md)."
+          elif [[ ! -f infra/secrets.enc.yaml ]]; then
+            echo "::notice::Plan, apply and the drift check are skipped until infra/secrets.enc.yaml exists (infra/scripts/encrypt-secrets.sh, see infra/BOOTSTRAP.md)."
+          else
+            ready=true
+          fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+  bootstrap:
+    needs: gate
+    if: needs.gate.outputs.ready == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/bootstrap-check.yml
+    secrets: inherit
+
+  plan:
+    needs: [static, bootstrap]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # A newer push to the same PR replaces its plan.
+    concurrency:
+      group: infra-plan-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+    defaults:
+      run:
+        working-directory: infra
+    # Backend (R2 over the S3 API), state and plan encryption, the secrets
+    # file, and the providers' tokens. Never echoed; plans mark sensitive
+    # values as such.
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL_S3: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      TF_VAR_state_passphrase: ${{ secrets.TF_STATE_PASSPHRASE }}
+      SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - run: tofu init -input=false
+      - id: plan
+        run: tofu plan -no-color -input=false -lock-timeout=5m -out=tfplan
+      - name: Post the plan on the PR
+        if: ${{ !cancelled() }}
+        env:
+          # gh prefers GH_TOKEN over the admin token in GITHUB_TOKEN.
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          OUTCOME: ${{ steps.plan.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          marker='<!-- infra-plan -->'
+          comment="$RUNNER_TEMP/comment.md"
+          if [[ "$OUTCOME" == success ]]; then
+            tofu show -no-color tfplan > "$RUNNER_TEMP/plan.txt"
+            summary="$(grep -m1 -E '^(Plan: |No changes\.)' "$RUNNER_TEMP/plan.txt" || echo 'Only output changes.')"
+            summary="${summary#Plan: }"
+            # A comment holds 65536 characters; the rest is in the run log.
+            limit=60000
+            {
+              echo "$marker"
+              echo "### OpenTofu plan: $summary"
+              echo
+              echo "Commit ${SHA:0:7} · [run log]($RUN_URL)"
+              echo
+              echo '<details><summary>Show plan</summary>'
+              echo
+              echo '```text'
+              head -c "$limit" "$RUNNER_TEMP/plan.txt"
+              echo
+              echo '```'
+              if (( $(wc -c < "$RUNNER_TEMP/plan.txt") > limit )); then
+                echo
+                echo "_Cut at $limit characters: the full plan is in the [run log]($RUN_URL)._"
+              fi
+              echo
+              echo '</details>'
+            } > "$comment"
+            echo "OpenTofu plan: $summary" >> "$GITHUB_STEP_SUMMARY"
+          else
+            # The error stays in the run log: it may quote configuration.
+            printf '%s\n### OpenTofu plan failed\n\nCommit %s · see the [run log](%s).\n' \
+              "$marker" "${SHA:0:7}" "$RUN_URL" > "$comment"
+          fi
+          id="$(gh api --paginate "repos/$GH_REPO/issues/$PR/comments" \
+                  --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | sed -n 1p)"
+          if [[ -n "$id" ]]; then
+            jq -Rs '{body: .}' "$comment" | gh api -X PATCH "repos/$GH_REPO/issues/comments/$id" --input - >/dev/null
+          else
+            jq -Rs '{body: .}' "$comment" | gh api "repos/$GH_REPO/issues/$PR/comments" --input - >/dev/null
+          fi
+
+  apply:
+    needs: [static, bootstrap]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Required reviewers can be added to this environment in the repo settings.
+    environment: infra
+    concurrency:
+      group: infra
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: infra
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL_S3: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      TF_VAR_state_passphrase: ${{ secrets.TF_STATE_PASSPHRASE }}
+      SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - run: tofu init -input=false
+      - run: tofu apply -auto-approve -input=false -no-color -lock-timeout=5m
+      - name: Install sops
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL --max-time 60 -o "$RUNNER_TEMP/bin/sops" \
+            "https://github.com/getsops/sops/releases/download/v$SOPS_VERSION/sops-v$SOPS_VERSION.linux.amd64"
+          echo "$SOPS_SHA256  $RUNNER_TEMP/bin/sops" | sha256sum --check --quiet
+          chmod +x "$RUNNER_TEMP/bin/sops"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # push_function_url and push_secret, which request_push_send() reads.
+      - name: Sync the Supabase Vault values
+        env:
+          # Without it the script takes supabase_db_url from the secrets file.
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: ./scripts/sync-vault.sh
+
+  drift:
+    needs: bootstrap
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: infra-drift
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+    defaults:
+      run:
+        working-directory: infra
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL_S3: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      TF_VAR_state_passphrase: ${{ secrets.TF_STATE_PASSPHRASE }}
+      SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - run: tofu init -input=false
+      # 0 = no difference, 2 = drift (handled below), anything else fails.
+      - id: plan
+        run: |
+          set +e
+          tofu plan -detailed-exitcode -no-color -input=false -lock-timeout=5m -out=tfplan
+          code=$?
+          set -e
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          if [[ "$code" != 0 && "$code" != 2 ]]; then
+            exit 1
+          fi
+      - name: Open or update the drift issue
+        if: steps.plan.outputs.exitcode == '2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tofu show -no-color tfplan > "$RUNNER_TEMP/plan.txt"
+          summary="$(grep -m1 -E '^Plan: ' "$RUNNER_TEMP/plan.txt" || echo 'Output changes only.')"
+          body="$RUNNER_TEMP/issue.md"
+          limit=60000
+          {
+            echo "The live infrastructure differs from \`infra/\` on main. $summary"
+            echo
+            echo "Found by the weekly drift check: [run log]($RUN_URL), $(date -u +%F)."
+            echo "Either put the change into code (a PR to \`infra/\`) or undo it in the dashboard;"
+            echo "the next check closes this issue once there is no difference."
+            echo
+            echo '<details><summary>Show plan</summary>'
+            echo
+            echo '```text'
+            head -c "$limit" "$RUNNER_TEMP/plan.txt"
+            echo
+            echo '```'
+            echo
+            echo '</details>'
+          } > "$body"
+          gh label create infra-drift --color D93F0B \
+            --description 'The live infrastructure differs from infra/' --force >/dev/null
+          number="$(gh issue list --label infra-drift --state open --limit 1 --json number --jq '.[0].number // empty')"
+          if [[ -n "$number" ]]; then
+            gh issue edit "$number" --body-file "$body" >/dev/null
+            echo "::warning::Drift: updated issue #$number."
+          else
+            url="$(gh issue create --title 'Infrastructure drift: the live setup differs from infra/' \
+                     --label infra-drift --body-file "$body")"
+            echo "::warning::Drift: opened $url."
+          fi
+      # One push per week at most (the dedup key is the ISO week).
+      - name: Notify the admins
+        if: steps.plan.outputs.exitcode == '2'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PGCLIENTENCODING: UTF8
+        run: |
+          if [[ -z "$SUPABASE_DB_URL" ]]; then
+            echo "::notice::Add the SUPABASE_DB_URL secret to notify the admins in the app."
+            exit 0
+          fi
+          url="$(printf %s "$SUPABASE_DB_URL" | tr -d '\r\n')"
+          psql "$url" -X -q -At -v ON_ERROR_STOP=1 -v dedup="drift:$(date -u +%G-W%V)" <<'SQL'
+          select 'admins notified: ' || public.notify_admins(
+            'התשתית השתנתה מחוץ לקוד',
+            'יש הבדל בין הקוד לבין מה שמוגדר בפועל. הפרטים ב-GitHub',
+            '/admin',
+            :'dedup'
+          );
+          SQL
+      - name: Close the drift issue
+        if: steps.plan.outputs.exitcode == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for number in $(gh issue list --label infra-drift --state open --json number --jq '.[].number'); do
+            gh issue close "$number" --comment "No difference any more ([run log]($RUN_URL))."
+          done
