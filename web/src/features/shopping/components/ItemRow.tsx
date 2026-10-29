@@ -3,20 +3,33 @@ import type { ListItem } from '@/lib/db-types'
 import { cn } from '@/lib/cn'
 import { MemberAvatar } from '@/components/ui/MemberAvatar'
 import { useHousehold } from '@/features/household/HouseholdProvider'
+import { getCategory } from '../lib/categories'
 
 interface ItemRowProps {
   item: ListItem
   onToggle: () => void
   onEdit: () => void
+  /** Shows the department as a button that opens the department picker. */
+  onMove?: () => void
 }
 
-export function ItemRow({ item, onToggle, onEdit }: ItemRowProps) {
+export function ItemRow({ item, onToggle, onEdit, onMove }: ItemRowProps) {
   const { memberById, user } = useHousehold()
   const addedBy = item.added_by && item.added_by !== user.id ? memberById(item.added_by) : undefined
   const checkedBy = item.checked ? memberById(item.checked_by) : undefined
 
   return (
     <li className="flex items-center gap-1">
+      {onMove && (
+        <button
+          type="button"
+          onClick={onMove}
+          className="flex h-10 w-9 shrink-0 items-center justify-center rounded-lg text-lg active:bg-surface-2"
+          aria-label={`העברת ${item.name} למחלקה אחרת`}
+        >
+          <span aria-hidden>{getCategory(item.category).emoji}</span>
+        </button>
+      )}
       <button
         type="button"
         onClick={onToggle}

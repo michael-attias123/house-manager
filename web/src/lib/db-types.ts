@@ -80,6 +80,14 @@ export interface FrequentItem {
   first_bought_at: string
 }
 
+/** A department the household chose by hand (features/shopping/lib/classify.ts). */
+export interface ItemCategory {
+  household_id: string
+  normalized_name: string
+  category: string
+  updated_at: string
+}
+
 export type SplitType = 'equal' | 'percent' | 'exact' | 'full' | 'default'
 
 export interface Expense {

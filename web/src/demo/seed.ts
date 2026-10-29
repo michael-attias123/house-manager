@@ -70,6 +70,10 @@ export function createSeed(now: Date = new Date()): Db {
     price_history: [],
     ingest_runs: [],
     product_links: [],
+    // Departments the household chose by hand: cookies live with the snacks.
+    item_categories: [
+      { household_id: HOUSEHOLD, normalized_name: 'עוגיות', category: 'pantry', updated_at: at(daysAgo(20)) },
+    ],
     // Stand-ins for auth.users and the admin tables (20261021000300_admin.sql).
     auth_users: [
       { id: MICHAEL, email: 'michael@demo', raw_user_meta_data: { full_name: 'מיכאל' }, created_at: at(daysAgo(200)), last_sign_in_at: at(today, '08:05') },
@@ -97,6 +101,7 @@ export function createSeed(now: Date = new Date()): Db {
     ['לחם אחיד', 1, 'bakery', MICHAEL, false, '7290000000020'],
     ['חזה עוף', 1, 'meat', YAHALI, false, null],
     ['סבון כלים', 1, 'cleaning', MICHAEL, false, null],
+    ['אוכל לחתולים', 1, 'other', MICHAEL, false, null],
     ['פסטה', 3, 'pantry', YAHALI, false, null],
     ['ביצים', 1, 'dairy', YAHALI, false, null],
     ['במבה', 2, 'pantry', YAHALI, true, null],

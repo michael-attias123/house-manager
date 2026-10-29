@@ -5,16 +5,22 @@ import type { ListItem } from '@/lib/db-types'
 import { Button } from '@/components/ui/Button'
 import { EmptyState, ErrorBox, Loading } from '@/components/ui/Feedback'
 import { AddItemBar } from './components/AddItemBar'
+import { CategoryPicker } from './components/CategoryPicker'
 import { CompleteTripSheet } from './components/CompleteTripSheet'
 import { EditItemSheet } from './components/EditItemSheet'
 import { ItemRow } from './components/ItemRow'
 import { SHOPPING_CATEGORIES, getCategory } from './lib/categories'
+import { categoryKey } from './lib/classify'
+import { learnedMap } from './lib/resolve'
 import {
   useAddItem,
   useDefaultList,
   useDeleteItem,
   useFrequentItems,
+  useItemCategories,
+  useLearnCategory,
   useListItems,
+  useMoveItem,
   useToggleItem,
   useUncheckAll,
   useUpdateItem,
@@ -35,7 +41,18 @@ function ShoppingList({ listId }: { listId: string }) {
   const updateItem = useUpdateItem(listId)
   const deleteItem = useDeleteItem(listId)
   const uncheckAll = useUncheckAll(listId)
+  const moveItem = useMoveItem(listId)
+  const learnCategory = useLearnCategory()
+  // Loaded here so a new item can use what the household taught the list.
+  const categories = useItemCategories()
+  // A suggestion from the purchase history follows the department chosen
+  // since, not the one it was bought under.
+  const suggestions = useMemo(() => {
+    const learned = learnedMap(categories.data)
+    return (frequent.data ?? []).map((f) => ({ ...f, category: learned.get(categoryKey(f.name)) ?? f.category }))
+  }, [frequent.data, categories.data])
   const [editing, setEditing] = useState<ListItem | null>(null)
+  const [moving, setMoving] = useState<ListItem | null>(null)
   const [completing, setCompleting] = useState(false)
 
   const { groups, checked } = useMemo(() => groupItems(items.data ?? []), [items.data])
@@ -47,7 +64,7 @@ function ShoppingList({ listId }: { listId: string }) {
     <div className="space-y-4 pb-24">
       <AddItemBar
         items={items.data ?? []}
-        frequent={frequent.data ?? []}
+        frequent={suggestions}
         onAdd={(text, from) =>
           addItem.mutate({ id: crypto.randomUUID(), text, category: from?.category, barcode: from?.barcode })
         }
@@ -76,6 +93,11 @@ function ShoppingList({ listId }: { listId: string }) {
             <span aria-hidden>{group.emoji}</span>
             {group.label}
           </h3>
+          {group.id === 'other' && (
+            <p className="mb-1 px-2 text-xs text-ink-3">
+              לא זיהינו את המחלקה. נוגעים באייקון כדי לסדר, והאפליקציה תזכור.
+            </p>
+          )}
           <ul className="rounded-2xl border border-line bg-surface p-1">
             {group.items.map((item) => (
               <ItemRow
@@ -83,6 +105,7 @@ function ShoppingList({ listId }: { listId: string }) {
                 item={item}
                 onToggle={() => toggleItem.mutate({ id: item.id, checked: true })}
                 onEdit={() => setEditing(item)}
+                onMove={() => setMoving(item)}
               />
             ))}
           </ul>
@@ -119,8 +142,20 @@ function ShoppingList({ listId }: { listId: string }) {
         <EditItemSheet
           item={editing}
           onClose={() => setEditing(null)}
-          onSave={(patch) => updateItem.mutate({ id: editing.id, patch })}
+          onSave={(patch) => {
+            updateItem.mutate({ id: editing.id, patch })
+            if (patch.category && patch.category !== editing.category) {
+              learnCategory.mutate({ name: patch.name ?? editing.name, category: patch.category })
+            }
+          }}
           onDelete={() => deleteItem.mutate(editing.id)}
+        />
+      )}
+      {moving && (
+        <CategoryPicker
+          item={moving}
+          onPick={(category) => moveItem.mutate({ item: moving, category })}
+          onClose={() => setMoving(null)}
         />
       )}
       {completing && (

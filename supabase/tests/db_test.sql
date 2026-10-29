@@ -59,6 +59,33 @@ begin
 end;
 $$;
 
+-- Departments learned by a household stay in that household.
+select public.test_login('00000000-0000-0000-0000-00000000000a');
+insert into public.item_categories (household_id, normalized_name, category) values (:'hid', 'פסטו', 'pantry');
+insert into public.item_categories (household_id, normalized_name, category) values (:'hid', 'פסטו', 'other')
+  on conflict (household_id, normalized_name) do update set category = excluded.category, updated_at = now();
+select public.test_login('00000000-0000-0000-0000-00000000000c');
+do $$
+begin
+  assert (select count(*) from public.item_categories) = 0, 'stranger sees learned categories';
+  begin
+    insert into public.item_categories (household_id, normalized_name, category)
+    values (current_setting('test.hid')::uuid, 'חלב', 'dairy');
+    raise exception 'stranger wrote a learned category';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+select public.test_login('00000000-0000-0000-0000-00000000000b');
+do $$
+begin
+  assert (select category from public.item_categories where normalized_name = 'פסטו') = 'other',
+    'partner does not see the learned category';
+end;
+$$;
+delete from public.item_categories;
+select public.test_login('00000000-0000-0000-0000-00000000000c');
+
 -- Shopping list and completing a trip ----------------------------------------
 select public.test_login('00000000-0000-0000-0000-00000000000a');
 select id as list_id from public.shopping_lists where is_default \gset
@@ -821,6 +848,7 @@ $$;
 
 -- 8. Deleting a household removes everything under it.
 insert into public.product_links (household_id, normalized_name, barcode) values (:'hid', 'חלב', '7290000000001');
+insert into public.item_categories (household_id, normalized_name, category) values (:'hid', 'פסטו', 'pantry');
 
 create or replace function pg_temp.household_rows(hid uuid)
 returns table (table_name text, n bigint)
