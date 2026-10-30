@@ -39,6 +39,14 @@ export function words(name: string): string[] {
     .map(fold)
 }
 
+/**
+ * Identity of an item on the list: like categoryKey() but numbers count, so
+ * "קוטג׳" is "קוטג" while "חלב 3%" and "חלב 1%" stay two items.
+ */
+export function itemKey(name: string): string {
+  return normName(name).split(' ').filter(Boolean).map(fold).join(' ')
+}
+
 /** The key a learned department is stored under (item_categories.normalized_name). */
 export function categoryKey(name: string): string {
   return words(name).join(' ')

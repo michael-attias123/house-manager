@@ -6,6 +6,7 @@ import {
   addItem,
   completeTrip,
   deleteItem,
+  deleteItems,
   fetchDefaultList,
   fetchFrequentItems,
   fetchItemCategories,
@@ -237,6 +238,18 @@ export function useDeleteItem(listId: string) {
     listId,
     (id) => deleteItem(id),
     (items, id) => items.filter((i) => i.id !== id),
+  )
+}
+
+/** Deletes several items in one request (selection mode). */
+export function useDeleteItems(listId: string) {
+  return useOptimisticItems<string[]>(
+    listId,
+    (ids) => deleteItems(ids),
+    (items, ids) => {
+      const gone = new Set(ids)
+      return items.filter((i) => !gone.has(i.id))
+    },
   )
 }
 

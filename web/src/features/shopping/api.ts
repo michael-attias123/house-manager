@@ -46,6 +46,11 @@ export async function deleteItem(id: string): Promise<void> {
   unwrap(await supabase.from('list_items').delete().eq('id', id))
 }
 
+export async function deleteItems(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  unwrap(await supabase.from('list_items').delete().in('id', ids))
+}
+
 export async function uncheckAll(listId: string): Promise<void> {
   unwrap(
     await supabase
