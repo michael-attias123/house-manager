@@ -10,6 +10,7 @@ ones the weekly load should read:
 - Wolt: restaurants by coordinates (unofficial API; a single request here).
 - Isracard's "חבר" club page: the chains its loadable cards work at.
 - Hever's own "חבר טעמים" store locator, searchable by town.
+- visitbr7.co.il, the city's tourism site: its night-life page.
 
 Nothing is written anywhere. A source that fails is reported and skipped.
 """
@@ -292,7 +293,51 @@ def dapei_zahav_cards() -> None:
         print("  text sample:", t[:1200])
 
 
-for probe in (club_hub_deals, dapei_zahav_cards, hever_store):
+def visit_br7() -> None:
+    """The city's tourism site: its night-life page and what each place's page holds."""
+    section("visitbr7.co.il: night life in Be'er Sheva")
+    url = "https://visitbr7.co.il/night_life/"
+    status, html = get(url)
+    print(f"{url} -> HTTP {status}")
+    if status != 200:
+        print("  ", text_of(html)[:300])
+        return
+    page_shape(html)
+    print("  WordPress?", "wp-content" in html, "| REST link:", re.findall(r'<link[^>]+rel="https://api.w.org/"[^>]+href="([^"]+)"', html)[:1])
+    links = list(dict.fromkeys(re.findall(r'href="(https://visitbr7\.co\.il/[^"#?]+/)"', html)))
+    print(f"  links on the page: {len(links)}")
+    for link in links[:80]:
+        print("   ", urllib.parse.unquote(link))
+    text = text_of(html)
+    print("  text sample:", text[:2500])
+    # The WordPress REST API, if open: post types and a sample.
+    st, body = get("https://visitbr7.co.il/wp-json/wp/v2/types")
+    print(f"  /wp-json/wp/v2/types -> HTTP {st}")
+    if st == 200:
+        try:
+            types = json.loads(body)
+            print("  post types:", {k: v.get("rest_base") for k, v in types.items()})
+        except ValueError:
+            print("  not JSON:", body[:200])
+    # One place page: address, hours, phone, coordinates?
+    places = [l for l in links if l != url and "wp-json" not in l and l.count("/") >= 5]
+    places.sort(key=lambda l: "/night_life/" not in l)
+    for link in places[:2]:
+        st, page = get(link)
+        print(f"  {urllib.parse.unquote(link)} -> HTTP {st}")
+        if st != 200:
+            continue
+        page_shape(page)
+        t = text_of(page)
+        print("  hours:", re.findall(r"\d{1,2}:\d{2}\s*[-–]\s*\d{1,2}:\d{2}", t)[:6],
+              "| phones:", re.findall(r"0\d{1,2}-?\d{7}", t)[:3],
+              "| coordinates:", re.findall(r"3[01]\.\d{4,}\s*,\s*3[45]\.\d{4,}", page)[:2])
+        for d in json_ld(page)[:2]:
+            print("  JSON-LD:", json.dumps(d, ensure_ascii=False)[:600])
+        print("  text sample:", t[:1500])
+
+
+for probe in (visit_br7,):
     try:
         probe()
     except Exception as e:  # noqa: BLE001 - report and go on to the next source
