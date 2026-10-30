@@ -18,6 +18,7 @@ import gzip
 import json
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -223,7 +224,75 @@ def hever_store() -> None:
     print("  text sample:", text[:1500])
 
 
-for probe in (hever_store, dapei_zahav, club_hub, wolt, isracard):
+def keys_of(value, depth=0, limit=3) -> str:
+    """A JSON value's shape, a few levels deep."""
+    if isinstance(value, dict) and depth < limit:
+        return "{" + ", ".join(f"{k}: {keys_of(v, depth + 1, limit)}" for k, v in list(value.items())[:25]) + "}"
+    if isinstance(value, list):
+        return f"[{len(value)} x {keys_of(value[0], depth + 1, limit) if value else ''}]"
+    return type(value).__name__
+
+
+def next_data(html: str) -> dict:
+    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S)
+    return json.loads(m.group(1)) if m else {}
+
+
+def club_hub_deals() -> None:
+    """Every "חבר טעמים" deal page, and which ones have a Be'er Sheva branch."""
+    section('Club Hub, round 2: the deals behind "חבר טעמים", and their branches')
+    status, html = get("https://www.clubhub.co.il/clubs/hvr-blue-card")
+    props = next_data(html).get("props", {}).get("pageProps", {})
+    deals = props.get("deals") or []
+    print(f"  pageProps.deals: {len(deals)}; shape: {keys_of(deals, limit=2)[:1500]}")
+    links = list(dict.fromkeys(re.findall(r'href="(/deal/[0-9a-f]{24}[^"]*)"', html)))
+    print(f"  deal links: {len(links)}")
+    found, shapes = [], 0
+    for i, link in enumerate(links):
+        url = "https://www.clubhub.co.il" + urllib.parse.quote(urllib.parse.unquote(link))
+        st, page = get(url)
+        if st != 200:
+            print(f"   {urllib.parse.unquote(link)} -> HTTP {st}")
+            continue
+        data = next_data(page).get("props", {}).get("pageProps", {})
+        if shapes < 1:
+            print(f"  a deal page's pageProps: {keys_of(data)[:2500]}")
+            shapes += 1
+        blob = json.dumps(data, ensure_ascii=False)
+        if CITY in blob or CITY in page:
+            found.append(urllib.parse.unquote(link).split("/")[-1])
+            ctx = around(blob, CITY, 160, 2) or around(text_of(page), CITY, 160, 2)
+            print(f"  BE'ER SHEVA in {urllib.parse.unquote(link)}:", *ctx, sep="\n      ")
+        time.sleep(0.3)
+    print(f"  deals with a Be'er Sheva branch: {len(found)} of {len(links)}:", ", ".join(found))
+
+
+def dapei_zahav_cards() -> None:
+    """How one business looks in the list and on its own page; the bars category."""
+    section("Dapei Zahav, round 2: a business card, a business page, the bars category")
+    st, html = get("https://www.d.co.il/h-c30420-e0-p0-l0-city9000/")
+    first = re.search(r'/h-c30420-e0-p0-l0-city9000-t\d+\.nb1/', html)
+    if first:
+        start = max(0, first.start() - 2500)
+        snippet = re.sub(r"\s+", " ", html[start: first.end() + 2500])
+        print("  raw HTML around the first business link:\n   ", snippet[:5000])
+    for label in ("פאבים ובארים", "בתי קפה"):
+        m = re.search(r'href="([^"]+)"[^>]*>(?:(?!</a>).)*?' + re.escape(label), html, re.S)
+        print(f"  {label} link:", m.group(1) if m else "not found")
+    pages = sorted(set(re.findall(r'href="(/[^"]*?\d{6,}[^"]*)"', html)) - set(re.findall(r'href="(/h-c30420[^"]*)"', html)))
+    print("  other numeric links (business pages?):", *pages[:10], sep="\n    ")
+    if pages:
+        st, page = get("https://www.d.co.il" + pages[0])
+        print(f"  {pages[0]} -> HTTP {st}")
+        page_shape(page)
+        t = text_of(page)
+        print("  hours on the page:", re.findall(r"\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}", t)[:10])
+        for d in json_ld(page)[:3]:
+            print("  JSON-LD:", json.dumps(d, ensure_ascii=False)[:700])
+        print("  text sample:", t[:1200])
+
+
+for probe in (club_hub_deals, dapei_zahav_cards, hever_store):
     try:
         probe()
     except Exception as e:  # noqa: BLE001 - report and go on to the next source
