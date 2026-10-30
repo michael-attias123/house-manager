@@ -12,7 +12,11 @@ import urllib.parse
 import urllib.request
 from collections import Counter
 
-ENDPOINTS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]
+ENDPOINTS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+]
 AMENITIES = "bar|pub|restaurant|cafe|nightclub|biergarten|fast_food|ice_cream"
 # The city by its administrative boundary, and a bounding box as a cross-check.
 QUERY_AREA = f"""
