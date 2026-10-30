@@ -9,6 +9,7 @@ ones the weekly load should read:
 - Club Hub: the restaurants that honor the "חבר טעמים" card, and their branches.
 - Wolt: restaurants by coordinates (unofficial API; a single request here).
 - Isracard's "חבר" club page: the chains its loadable cards work at.
+- Hever's own "חבר טעמים" store locator, searchable by town.
 
 Nothing is written anywhere. A source that fails is reported and skipped.
 """
@@ -183,7 +184,46 @@ def isracard() -> None:
     print("  PDFs linked:", *pdfs[:10], sep="\n    ")
 
 
-for probe in (dapei_zahav, club_hub, wolt, isracard):
+def hever_store() -> None:
+    section('Hever: the "חבר טעמים" store locator (hvr.co.il/site/pg/teamim_card_store)')
+    url = "https://www.hvr.co.il/site/pg/teamim_card_store"
+    status, html = get(url)
+    print(f"{url} -> HTTP {status}")
+    if status != 200:
+        print("  ", text_of(html)[:300])
+        return
+    page_shape(html)
+    text = text_of(html)
+    print("  needs a login?", any(w in text for w in ("התחברות", "כניסה למערכת", "סיסמה", "קוד אימות")))
+    print("  Be'er Sheva mentions:", *around(text, CITY), sep="\n    ")
+    for form in re.findall(r"<form[^>]*>.*?</form>", html, re.S | re.I)[:4]:
+        head = re.search(r"<form[^>]*>", form).group(0)
+        inputs = re.findall(r'<(?:input|select)[^>]*name="([^"]+)"', form)
+        print(f"  form {head[:160]} inputs={inputs[:15]}")
+    selects = re.findall(r"<select[^>]*>(.*?)</select>", html, re.S | re.I)
+    for sel in selects[:3]:
+        options = re.findall(r'<option[^>]*value="([^"]*)"[^>]*>([^<]*)<', sel)
+        city = [o for o in options if CITY in o[1]]
+        print(f"  select with {len(options)} options; first {options[:4]}; Be'er Sheva: {city}")
+    endpoints = sorted(set(re.findall(r'["\'](/[^"\'\s]*(?:ajax|Ajax|ashx|asmx|api|Api|json|Json|store|Store|search|Search)[^"\'\s]*)["\']', html)))
+    print("  endpoint-looking paths:", *endpoints[:20], sep="\n    ")
+    scripts = [s for s in re.findall(r'<script[^>]+src="([^"]+)"', html) if "hvr" in s or s.startswith("/")]
+    print("  own scripts:", *scripts[:15], sep="\n    ")
+    for src in scripts[:15]:
+        full = src if src.startswith("http") else f"https://www.hvr.co.il{src}"
+        st, js = get(full)
+        hits = sorted(set(re.findall(r'["\'](/[^"\'\s]{3,120})["\']', js)))
+        hits = [h for h in hits if re.search(r"(?i)teamim|store|ajax|ashx|asmx|api|city|branch|search", h)]
+        if hits:
+            print(f"  {src} (HTTP {st}):", *hits[:15], sep="\n      ")
+    inline = " ".join(re.findall(r"<script(?![^>]+src)[^>]*>(.*?)</script>", html, re.S | re.I))
+    for word in ("teamim", "ajax", "$.post", "$.get", "fetch(", "XMLHttpRequest", "city", "store"):
+        for ctx in around(inline, word, 120, 2):
+            print(f"  inline {word}: {ctx}")
+    print("  text sample:", text[:1500])
+
+
+for probe in (hever_store, dapei_zahav, club_hub, wolt, isracard):
     try:
         probe()
     except Exception as e:  # noqa: BLE001 - report and go on to the next source
