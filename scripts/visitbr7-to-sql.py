@@ -152,10 +152,15 @@ def cuisine(text: str) -> str | None:
     return "כשר" if re.search(r"(?<![א-ת])כשר(?![א-ת])", clean_text(text)) else None
 
 
+# Geocodes that are the right street but the wrong part of it: "מיקום לא
+# ידוע" beats a distance that is off by kilometers.
+WRONG_SPOT = {"פרינדס בר"}  # a point on דרך מצדה about 2 km west of number 17
+
+
 def location(p: dict) -> tuple[float | None, float | None, str]:
     """The geocode when it is the place or its street, inside the city; else none."""
     g = p.get("geocode") or {}
-    if "lat" not in g or g.get("type") not in EXACT | STREET:
+    if name(p.get("title", "")) in WRONG_SPOT or "lat" not in g or g.get("type") not in EXACT | STREET:
         return None, None, "none"
     lat, lng = float(g["lat"]), float(g["lng"])
     if not (SOUTH <= lat <= NORTH and WEST <= lng <= EAST):
@@ -256,6 +261,8 @@ def test() -> None:
     assert location(exact) == (31.255423, 34.795307, "exact")
     assert location({"geocode": {"lat": 31.2375551, "lng": 34.7923359, "type": "tertiary"}})[2] == "street"
     assert location({"geocode": {"query": "x", "status": 200}}) == (None, None, "none")
+    friends = {"title": "פרינדס בר", "geocode": {"lat": 31.258248, "lng": 34.775566, "type": "secondary"}}
+    assert location(friends) == (None, None, "none")  # WRONG_SPOT
     assert location({"geocode": {"lat": 32.08, "lng": 34.78, "type": "bar"}}) == (None, None, "none")
     assert location({"geocode": {"lat": 31.24, "lng": 34.78, "type": "administrative"}}) == (None, None, "none")
     assert sql("מנצ'ילה") == "'מנצ''ילה'" and sql(None) == "null"

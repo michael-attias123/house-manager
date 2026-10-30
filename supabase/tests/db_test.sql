@@ -2438,7 +2438,7 @@ begin
   n := (select count(*) from public.venues where source = 'visitbr7');
   assert n = 21, format('%s visitbr7 places', n);
   assert not exists (select 1 from public.venues where name like 'סיור ברים%'), 'the bar tour was added';
-  assert (select count(*) from public.venues where source = 'visitbr7' and lat is null) = 6, 'locations';
+  assert (select count(*) from public.venues where source = 'visitbr7' and lat is null) = 7, 'locations';
   assert (select count(*) from public.venue_deals d join public.venues v on v.id = d.venue_id
           where v.source = 'visitbr7') = 0, 'deals were added';
   assert (select (kind, address, phone, instagram, website, opening_hours, cuisine, lat)

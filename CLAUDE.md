@@ -109,7 +109,10 @@ tourism site (`source = 'visitbr7'`, a one-time import of its bars made with
 approved in the admin's "הצעות" tab; `member_card` deals ("כרטיס חבר") are
 standing discounts and never count as "on now". Opening hours are OSM syntax,
 read by `lib/hours.ts` (anything it can't read is unknown, never closed).
-The demo names no real business.
+Deals can also be read from screenshots by an AI chat ("ייבוא עם AI",
+`lib/aiImport.ts`): the app gives the instructions and parses the pasted
+answer, calling no model; an admin's import goes in approved through
+`admin_add_deals`. The demo names no real business.
 
 ## Price data
 
