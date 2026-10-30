@@ -31,6 +31,25 @@ function fold(word: string): string {
   return word.replace(/[םןץףך]/g, (c) => FINALS[c])
 }
 
+// Pairs where the ה is not a feminine ending but a different product.
+const KEEP_WHOLE = new Set(['חלבה', 'לבנה'])
+
+/**
+ * One form for singular and plural, so "תות" and "תותים", or "עגבנייה",
+ * "עגבניה" and "עגבניות", are the same word. Takes a folded word.
+ */
+export function lemma(word: string): string {
+  if (KEEP_WHOLE.has(word)) return word
+  const cut = (n: number) => (word.length - n >= 2 ? word.slice(0, -n) : word)
+  if (word.endsWith('ייה')) return cut(2) // עגבנייה → עגבני
+  if (word.endsWith('יות')) return cut(2) // עגבניות → עגבני, שקיות → שקי
+  if (word.endsWith('ות')) return cut(2) // פיתות → פית
+  if (word.endsWith('ימ')) return cut(2) // תותימ → תות (but מימ stays)
+  if (word.endsWith('ה')) return cut(1) // עגבניה → עגבני, פיתה → פית
+  if (word.endsWith('ית') && word.length >= 4) return cut(1) // שקית → שקי (but זית stays)
+  return word
+}
+
 /** Normalized words of a name, numbers and units dropped. */
 export function words(name: string): string[] {
   return normName(name)
@@ -41,15 +60,16 @@ export function words(name: string): string[] {
 
 /**
  * Identity of an item on the list: like categoryKey() but numbers count, so
- * "קוטג׳" is "קוטג" while "חלב 3%" and "חלב 1%" stay two items.
+ * "קוטג׳" is "קוטג" and "תות" is "תותים", while "חלב 3%" and "חלב 1%" stay
+ * two items.
  */
 export function itemKey(name: string): string {
-  return normName(name).split(' ').filter(Boolean).map(fold).join(' ')
+  return normName(name).split(' ').filter(Boolean).map(fold).map(lemma).join(' ')
 }
 
 /** The key a learned department is stored under (item_categories.normalized_name). */
 export function categoryKey(name: string): string {
-  return words(name).join(' ')
+  return words(name).map(lemma).join(' ')
 }
 
 interface Word {
@@ -85,7 +105,8 @@ function wordMatch(word: Word, token: string): 0 | 1 | 2 {
   const minLength = Math.max(3, word.text.length)
   const tried = word.text.length >= 3 ? candidates(token, minLength) : [token]
   for (let i = 0; i < tried.length; i++) {
-    if (word.stem ? tried[i].startsWith(word.text) : word.forms.has(tried[i])) return i === 0 ? 2 : 1
+    const c = tried[i]
+    if (word.stem ? c.startsWith(word.text) : word.forms.has(c) || lemma(c) === lemma(word.text)) return i === 0 ? 2 : 1
   }
   return 0
 }
@@ -155,7 +176,8 @@ export function classify(name: string, learned: ReadonlyMap<string, string> = ne
   const exact = learned.get(key)
   if (exact) return { category: exact, confidence: 'learned', matched: key }
 
-  const tokens = key ? key.split(' ') : []
+  // The words as written: the matcher knows the endings itself.
+  const tokens = words(name)
   const matches = findMatches(tokens, [...RULES, ...learnedRules(learned)])
   if (matches.length === 0) return { category: 'other', confidence: 'none', matched: null }
 

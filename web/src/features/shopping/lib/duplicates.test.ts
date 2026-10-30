@@ -10,6 +10,10 @@ describe('itemKey', () => {
     expect(itemKey(' חלב  ')).toBe(itemKey('חלב'))
     expect(itemKey('חלב 3%')).not.toBe(itemKey('חלב 1%'))
     expect(itemKey('חלב 3%')).not.toBe(itemKey('חלב'))
+    expect(itemKey('תותים')).toBe(itemKey('תות'))
+    expect(itemKey('עגבנייה')).toBe(itemKey('עגבניות'))
+    expect(itemKey('עגבניות שרי')).toBe(itemKey('עגבניה שרי'))
+    expect(itemKey('חלבה')).not.toBe(itemKey('חלב'))
   })
 })
 
@@ -19,6 +23,11 @@ describe('findDuplicate', () => {
   it('finds the same item, however it was typed', () => {
     expect(findDuplicate(items, 'חלב ')?.id).toBe('a')
     expect(findDuplicate(items, 'קוטג')?.id).toBe('b')
+  })
+
+  it('treats singular and plural as the same item', () => {
+    expect(findDuplicate([item('t', 'תותים')], 'תות')?.id).toBe('t')
+    expect(findDuplicate([item('g', 'עגבנייה')], 'עגבניות')?.id).toBe('g')
   })
 
   it('prefers the open item to the one in the cart', () => {

@@ -1,4 +1,4 @@
-import { categoryKey, classify } from './classify'
+import { categoryKey, classify, lemma } from './classify'
 
 // Real shopping-list lines, as people type them. Each trap the old substring
 // guesser fell into is here: "שומשום" is not garlic, "חמאת בוטנים" is not
@@ -97,8 +97,28 @@ describe('classify', () => {
     // A learned name inside a longer one outweighs the lexicon.
     expect(classify('פסטו גנובזה', learned).category).toBe('other')
     expect(classify('אבקת חלבון וניל', learned).category).toBe('hygiene')
+    // Singular and plural are one name.
+    expect(classify('פסטו', new Map([[categoryKey('תותים'), 'frozen']])).category).toBe('pantry')
+    expect(classify('תות', new Map([[categoryKey('תותים'), 'frozen']])).confidence).toBe('learned')
     // Other names are unaffected.
     expect(classify('חלב', learned).category).toBe('dairy')
+  })
+})
+
+describe('lemma', () => {
+  it.each([
+    ['תות', 'תותימ'], ['עגבנייה', 'עגבניות'], ['עגבניה', 'עגבניות'], ['ביצה', 'ביצימ'], ['פיתה', 'פיתות'],
+    ['לחמנייה', 'לחמניות'], ['שקית', 'שקיות'], ['מפית', 'מפיות'], ['זית', 'זיתימ'], ['דג', 'דגימ'],
+    ['חיתול', 'חיתולימ'], ['עוגיה', 'עוגיות'], ['גבינה', 'גבינות'],
+  ])('%s = %s', (one, many) => {
+    expect(lemma(one)).toBe(lemma(many))
+  })
+
+  it('keeps different products apart', () => {
+    expect(lemma('חלבה')).not.toBe(lemma('חלב'))
+    expect(lemma('לבנה')).not.toBe(lemma('לבנ'))
+    expect(lemma('מימ')).toBe('מימ')
+    expect(lemma('תה')).toBe('תה')
   })
 })
 
@@ -106,8 +126,9 @@ describe('categoryKey', () => {
   it('ignores punctuation, numbers and final letters', () => {
     expect(categoryKey(' פסטו. ')).toBe('פסטו')
     expect(categoryKey('חלב 3%')).toBe(categoryKey('חלב'))
-    expect(categoryKey('עגבניות שרי')).toBe('עגבניות שרי'.replace('ת', 'ת'))
-    expect(categoryKey('ביצים')).toBe('ביצימ')
+    expect(categoryKey('עגבניות שרי')).toBe(categoryKey('עגבנייה שרי'))
+    expect(categoryKey('ביצים')).toBe(categoryKey('ביצה'))
+    expect(categoryKey('תותים')).toBe(categoryKey('תות'))
     expect(categoryKey('123')).toBe('')
   })
 })
