@@ -1,5 +1,7 @@
 import type { Venue } from '@/lib/db-types'
-import { findSimilar, instagramUrl, mapsUrl, searchVenues, wazeUrl, websiteUrl } from './search'
+import { BEER_SHEVA } from './geo'
+import { buildSections } from './rank'
+import { findSimilar, instagramUrl, mapsUrl, matchRank, searchItems, searchVenues, venueKey, wazeUrl, websiteUrl } from './search'
 
 let nextId = 0
 const venue = (name: string, extra: Partial<Venue> = {}): Venue => ({
@@ -74,5 +76,37 @@ describe('links', () => {
     expect(instagramUrl('@demo.bar')).toBe('https://instagram.com/demo.bar')
     expect(instagramUrl('https://instagram.com/x')).toBe('https://instagram.com/x')
     expect(websiteUrl('example.com')).toBe('https://example.com')
+  })
+})
+
+describe('matchRank', () => {
+  const rank = (name: string, query: string) => matchRank(name, venueKey(query))
+  it('ranks a start before a word before anywhere', () => {
+    expect(rank('בר הדוגמה', 'בר')).toBe(0)
+    expect(rank('ביסטרו בר', 'בר')).toBe(1)
+    expect(rank('הבר של השכנים', 'בר')).toBe(2)
+    expect(rank('פאב השכונה', 'בר')).toBeNull()
+    expect(rank('Black & White', 'white')).toBe(1)
+    expect(rank('Zigi', 'ZI')).toBe(0)
+  })
+})
+
+describe('searchItems', () => {
+  const at = (meters: number) => ({ lat: BEER_SHEVA.center.lat + meters / 111_195, lng: BEER_SHEVA.center.lng })
+  const venues = [
+    venue('הבר הרחוק', at(3000)),
+    venue('בר הפינה', at(2000)),
+    venue('בר השכונה', at(100)),
+    venue('פיצה טובה', { ...at(50), kind: 'restaurant', cuisine: 'pizza;italian' }),
+    venue('ביסטרו', { ...at(10), kind: 'restaurant', address: 'רחוב הבר 4' }),
+  ]
+  const items = buildSections(venues, [], BEER_SHEVA.center, new Date('2026-11-03T18:00:00Z')).all
+  const names = (q: string) => searchItems(items, q).map((i) => i.venue.name)
+
+  it('puts name matches first, nearest first among equals, then street and cuisine', () => {
+    expect(names('בר')).toEqual(['בר השכונה', 'בר הפינה', 'הבר הרחוק', 'ביסטרו'])
+    expect(names('italian')).toEqual(['פיצה טובה'])
+    expect(names('  ')).toEqual([])
+    expect(names('סושי')).toEqual([])
   })
 })

@@ -1,19 +1,24 @@
 // The main screen's sections. Pure: the venues and deals come in already
 // filtered by RLS (the global catalog plus this household's suggestions).
 // A household's pending suggestions show like any other; rejected ones only
-// in "ההצעות שלי".
+// in "ההצעות שלי". Keva card discounts (isPerk) are standing, so they show on
+// the place but never put it in "עכשיו" or "בהמשך הערב".
 import type { Venue, VenueDeal } from '@/lib/db-types'
 import { distanceKm, venuePoint, type LatLng } from './geo'
 import { openState, type OpenState } from './hours'
-import { isShown, KIND_FILTERS, type KindFilter } from './kinds'
+import { isPerk, isShown, KIND_FILTERS, type KindFilter } from './kinds'
 import { dealWindow, jerusalemClock, LATER_MINUTES, parseTime, type DealState, type DealWindow } from './schedule'
 
 export interface Filters {
   kind: KindFilter
   dealsOnly: boolean
+  /** Only places with a keva card ("כרטיס חבר") discount. */
+  memberCard: boolean
 }
 
-export const NO_FILTERS: Filters = { kind: 'all', dealsOnly: false }
+export const NO_FILTERS: Filters = { kind: 'all', dealsOnly: false, memberCard: false }
+
+const NO_FAVORITES: ReadonlySet<number> = new Set()
 
 export interface DealView {
   deal: VenueDeal
@@ -25,13 +30,19 @@ export interface VenueItem {
   /** From the origin; null for a place without a location. */
   distanceKm: number | null
   open: OpenState
-  /** The card's deals: on now first; expired ones left out. */
+  /** The card's deals: on now first, keva card discounts last; expired ones left out. */
   deals: DealView[]
+  /** Its first keva card discount, if any. */
+  memberCard: DealView | null
+  /** The household starred it. */
+  favorite: boolean
   /** In "later": minutes until the first start. */
   startsIn: number | null
 }
 
 export interface Sections {
+  /** The household's starred places: on now first, then open, then nearest. */
+  favorites: VenueItem[]
   now: VenueItem[]
   later: VenueItem[]
   all: VenueItem[]
@@ -42,6 +53,7 @@ const STATE_ORDER: Record<DealState, number> = { active: 0, later: 1, upcoming: 
 
 function byWhen(a: DealView, b: DealView) {
   return (
+    Number(isPerk(a.deal)) - Number(isPerk(b.deal)) ||
     STATE_ORDER[a.window.state] - STATE_ORDER[b.window.state] ||
     (a.window.startsIn ?? 0) - (b.window.startsIn ?? 0) ||
     a.deal.title.localeCompare(b.deal.title, 'he')
@@ -54,7 +66,8 @@ export function dealViews(deals: VenueDeal[], now: Date): DealView[] {
 
 /**
  * A card's deals, and the place page's list: by when they're on (active,
- * later, other days). Rejected and expired ones are left out.
+ * later, other days), keva card discounts last. Rejected and expired ones
+ * are left out.
  */
 export function sheetDeals(deals: VenueDeal[], now: Date): DealView[] {
   return dealViews(deals.filter(isShown), now)
@@ -74,12 +87,18 @@ const nearestFirst = (a: VenueItem, b: VenueItem) =>
 
 const OPEN_ORDER = { open: 0, unknown: 1, closed: 2 }
 
+/** Something on tonight: a deal that isn't a standing discount. */
+const happenings = (item: VenueItem) => item.deals.filter((d) => !isPerk(d.deal))
+const isOnNow = (item: VenueItem) =>
+  item.open.state !== 'closed' && happenings(item).some((d) => d.window.state === 'active')
+
 export function buildSections(
   venues: Venue[],
   deals: VenueDeal[],
   origin: LatLng,
   now: Date,
   filters: Filters = NO_FILTERS,
+  favorites: ReadonlySet<number> = NO_FAVORITES,
 ): Sections {
   const byVenue = new Map<number, VenueDeal[]>()
   for (const d of deals.filter(isShown)) byVenue.set(d.venue_id, [...(byVenue.get(d.venue_id) ?? []), d])
@@ -89,26 +108,27 @@ export function buildSections(
     .filter((v) => !v.hidden && isShown(v) && (!kinds || kinds.includes(v.kind)))
     .map((venue) => {
       const point = venuePoint(venue)
+      const deals = sheetDeals(byVenue.get(venue.id) ?? [], now)
       return {
         venue,
         distanceKm: point ? distanceKm(origin, point) : null,
         open: openState(venue.opening_hours, now),
-        deals: sheetDeals(byVenue.get(venue.id) ?? [], now),
+        deals,
+        memberCard: deals.find((d) => isPerk(d.deal)) ?? null,
+        favorite: favorites.has(venue.id),
         startsIn: null,
       }
     })
-    .filter((item) => !filters.dealsOnly || item.deals.length > 0)
+    .filter((item) => (!filters.dealsOnly || item.deals.length > 0) && (!filters.memberCard || item.memberCard))
 
   // Unknown hours never hide a place: only one known to be closed is left out.
-  const onNow = items
-    .filter((i) => i.open.state !== 'closed' && i.deals.some((d) => d.window.state === 'active'))
-    .sort(nearestFirst)
+  const onNow = items.filter(isOnNow).sort(nearestFirst)
   const inNow = new Set(onNow.map((i) => i.venue.id))
 
   const later: VenueItem[] = []
   for (const item of items) {
     if (inNow.has(item.venue.id)) continue
-    const starts = item.deals
+    const starts = happenings(item)
       .filter((d) => d.window.state === 'later')
       .map((d) => d.window.startsIn!)
       // Same rule as "now", at the start time: left out only if known to be closed then.
@@ -118,7 +138,7 @@ export function buildSections(
     if (
       opening != null &&
       opening <= LATER_MINUTES &&
-      item.deals.some((d) => d.window.state === 'active' && d.window.start == null)
+      happenings(item).some((d) => d.window.state === 'active' && d.window.start == null)
     ) {
       starts.push(opening)
     }
@@ -132,5 +152,13 @@ export function buildSections(
       OPEN_ORDER[a.open.state] - OPEN_ORDER[b.open.state] ||
       nearestFirst(a, b),
   )
-  return { now: onNow, later, all }
+  const starred = items
+    .filter((i) => i.favorite)
+    .sort(
+      (a, b) =>
+        Number(!inNow.has(a.venue.id)) - Number(!inNow.has(b.venue.id)) ||
+        OPEN_ORDER[a.open.state] - OPEN_ORDER[b.open.state] ||
+        nearestFirst(a, b),
+    )
+  return { favorites: starred, now: onNow, later, all }
 }

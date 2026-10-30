@@ -186,7 +186,7 @@ export function DealForm({ mode, venues, initial, status, place, onClose, onSubm
                 value={draft.title}
                 maxLength={TITLE_MAX}
                 onChange={(e) => set({ title: e.target.value })}
-                placeholder="למשל: יין ללא תחתית"
+                placeholder={draft.kind === 'member_card' ? 'למשל: 10% הנחה בכרטיס חבר' : 'למשל: יין ללא תחתית'}
               />
               <FieldError error={errors.title} />
             </>
@@ -197,16 +197,23 @@ export function DealForm({ mode, venues, initial, status, place, onClose, onSubm
           <span className="block text-sm font-medium text-ink-2">סוג</span>
           <Segmented
             value={draft.kind}
-            onChange={(kind) => set({ kind })}
+            // A card discount usually holds every day, all opening hours.
+            onChange={(kind) => set(kind === 'member_card' ? { kind, weekdays: [], allHours: true } : { kind })}
             options={DEAL_KINDS.map((k) => ({ value: k.value, label: k.label }))}
           />
+          {draft.kind === 'member_card' && (
+            <p className="text-xs text-ink-3">
+              הנחה למחזיקי כרטיס חבר (מועדון חבר של משרתי הקבע). מופיע על המקום, לא ב״עכשיו״. כדאי לבדוק את התנאים
+              באתר המועדון.
+            </p>
+          )}
         </div>
 
         {draft.kind !== 'event' && (
           <div className="space-y-1.5">
             <span className="block text-sm font-medium text-ink-2">ימים</span>
             <div className="flex flex-wrap gap-1">
-              {draft.kind === 'happy_hour' && (
+              {(draft.kind === 'happy_hour' || draft.kind === 'member_card') && (
                 <Chip selected={draft.weekdays.length === 0} onClick={() => set({ weekdays: [] })}>
                   כל יום
                 </Chip>

@@ -1,5 +1,5 @@
 import { supabase, unwrap } from '@/lib/supabase'
-import type { Venue, VenueDeal } from '@/lib/db-types'
+import type { Venue, VenueDeal, VenueFavorite } from '@/lib/db-types'
 import { adminDealArgs, type DealFields } from './lib/draft'
 import { goingOutErrorMessage } from './lib/errors'
 import { adminVenueArgs, memberVenueFields, type VenueFields } from './lib/venueDraft'
@@ -19,6 +19,25 @@ export async function fetchVenues(): Promise<Venue[]> {
 
 export async function fetchDeals(): Promise<VenueDeal[]> {
   return unwrap(await supabase.from('venue_deals').select('*').order('created_at')) as VenueDeal[]
+}
+
+export async function fetchFavorites(householdId: string): Promise<number[]> {
+  const rows = unwrap(
+    await supabase.from('venue_favorites').select('venue_id').eq('household_id', householdId),
+  ) as Pick<VenueFavorite, 'venue_id'>[]
+  return rows.map((r) => r.venue_id)
+}
+
+export async function addFavorite(householdId: string, venueId: number): Promise<void> {
+  check(
+    await supabase
+      .from('venue_favorites')
+      .upsert({ household_id: householdId, venue_id: venueId }, { onConflict: 'household_id,venue_id', ignoreDuplicates: true }),
+  )
+}
+
+export async function removeFavorite(householdId: string, venueId: number): Promise<void> {
+  check(await supabase.from('venue_favorites').delete().eq('household_id', householdId).eq('venue_id', venueId))
 }
 
 export type NewDeal = DealFields & Pick<VenueDeal, 'id' | 'household_id' | 'created_by'>

@@ -117,8 +117,18 @@ describe('demo going-out suggestions', () => {
   it('merges a duplicate place into the approved one', async () => {
     expect(await rpcError('admin_merge_venue', { p_from: 10, p_into: 12 })).toBe('venue not approved')
     expect(await rpcError('admin_merge_venue', { p_from: 1, p_into: 2 })).toBe('not found')
+    db.venue_favorites = [
+      { household_id: HOUSEHOLD, venue_id: 11 },
+      { household_id: HOUSEHOLD, venue_id: 2 },
+      { household_id: 'other', venue_id: 11 },
+    ]
     expect(await rpcError('admin_merge_venue', { p_from: 11, p_into: 2 })).toBeUndefined()
     expect(venueRow(11)).toBeUndefined()
+    // The stars move with it, one per household.
+    expect(db.venue_favorites).toEqual([
+      { household_id: HOUSEHOLD, venue_id: 2 },
+      { household_id: 'other', venue_id: 2 },
+    ])
     expect(dealRow('d5')).toMatchObject({ venue_id: 2, status: 'pending' })
     const rows = await suggestions()
     expect(keys(rows)).not.toContain(11)

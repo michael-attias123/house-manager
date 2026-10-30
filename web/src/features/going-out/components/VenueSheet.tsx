@@ -1,13 +1,13 @@
 import { useState } from 'react'
-import { Check, EyeOff, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Check, EyeOff, Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import type { VenueDeal } from '@/lib/db-types'
 import { Button } from '@/components/ui/Button'
 import { ConfirmButton } from '@/components/ui/ConfirmButton'
 import { Sheet } from '@/components/ui/Sheet'
 import { formatDay } from '@/lib/dates'
-import { useAdminDeleteDeal, useAdminHideVenue, useConfirmDeal } from '../hooks'
+import { useAdminDeleteDeal, useAdminHideVenue, useConfirmDeal, useToggleFavorite } from '../hooks'
 import { todayHours, weekLines, type DayLine } from '../lib/hours'
-import { dealKind, venueKind } from '../lib/kinds'
+import { dealKind, isPerk, venueKind } from '../lib/kinds'
 import { sheetDeals, type DealView, type VenueItem } from '../lib/rank'
 import { canConfirm, confirmedLabel, crossesMidnight, isStale, shortTime } from '../lib/schedule'
 import { instagramUrl, mapsUrl, wazeUrl, websiteUrl } from '../lib/search'
@@ -40,6 +40,7 @@ export function VenueSheet({ item, deals, now, admin, onClose, onAddDeal, onEdit
   const point = venuePoint(venue)
   const list = sheetDeals(deals, now)
   const hide = useAdminHideVenue()
+  const star = useToggleFavorite()
 
   return (
     <Sheet
@@ -54,11 +55,21 @@ export function VenueSheet({ item, deals, now, admin, onClose, onAddDeal, onEdit
       }
     >
       <div className="space-y-4">
-        <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
           <p className="text-sm text-ink-2">
             <span aria-hidden>{kind.emoji}</span> {kind.label} · <Distance km={item.distanceKm} />
           </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-pressed={item.favorite}
+            onClick={() => star.mutate({ venueId: venue.id, favorite: !item.favorite })}
+          >
+            <Star size={16} className={item.favorite ? 'fill-amber-400 text-amber-500' : undefined} />
+            {item.favorite ? 'במועדפים' : 'הוספה למועדפים'}
+          </Button>
         </div>
+        {star.error && <p className="text-xs text-rose-700 dark:text-rose-300">{star.error.message}</p>}
 
         {admin && (
           <div className="space-y-1">
@@ -239,7 +250,7 @@ function DealRow({ view, now, admin, onEdit }: { view: DealView; now: Date; admi
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{deal.title}</span>
-            {on && <span className="text-xs text-brand-700 dark:text-brand-200">עכשיו</span>}
+            {on && !isPerk(deal) && <span className="text-xs text-brand-700 dark:text-brand-200">עכשיו</span>}
           </div>
           <p className="text-ink-2">
             <DealDays deal={deal} />

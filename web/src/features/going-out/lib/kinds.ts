@@ -13,10 +13,17 @@ export const DEAL_KINDS: { value: DealKind; label: string; emoji: string }[] = [
   { value: 'happy_hour', label: 'Happy hour', emoji: '🍻' },
   { value: 'special_day', label: 'יום מיוחד', emoji: '📅' },
   { value: 'event', label: 'אירוע חד־פעמי', emoji: '⭐' },
+  { value: 'member_card', label: 'כרטיס חבר', emoji: '💳' },
 ]
 
 export const venueKind = (kind: VenueKind) => VENUE_KINDS.find((k) => k.value === kind) ?? VENUE_KINDS[5]
 export const dealKind = (kind: DealKind) => DEAL_KINDS.find((k) => k.value === kind) ?? DEAL_KINDS[0]
+
+/**
+ * A standing discount (keva club card) rather than something on tonight: it
+ * shows on the place, never in "עכשיו" / "בהמשך הערב".
+ */
+export const isPerk = (deal: { kind: DealKind }) => deal.kind === 'member_card'
 
 /** The filter chips: bars include pubs and clubs; "other" shows only under "הכל". */
 export type KindFilter = 'all' | 'bars' | 'restaurants' | 'cafes'

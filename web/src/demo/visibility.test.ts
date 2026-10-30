@@ -16,8 +16,10 @@ describe('demo going-out visibility', () => {
     ])
     const deals = await select('venue_deals')
     expect(deals.map((d) => d.status).sort()).toEqual([
-      'approved', 'approved', 'approved', 'approved', 'approved', 'approved', 'pending', 'rejected',
+      'approved', 'approved', 'approved', 'approved', 'approved', 'approved', 'approved', 'approved',
+      'pending', 'pending', 'rejected',
     ])
+    expect(deals.filter((d) => d.kind === 'member_card').map((d) => d.venue_id).sort()).toEqual([4, 5, 7])
   })
 
   it("hides another household's suggestions and hidden places", async () => {
@@ -31,6 +33,19 @@ describe('demo going-out visibility', () => {
     // Nor can it be changed from here.
     await demoClient.from('venue_deals').update({ title: 'x' }).eq('id', 'tal-deal')
     expect(db.venue_deals.find((d) => d.id === 'tal-deal')?.title).toBeUndefined()
+  })
+
+  it("keeps each household's stars to itself", async () => {
+    db.venue_favorites.push({ household_id: TEST_HOUSEHOLD, venue_id: 2, created_at: '2026-11-01T00:00:00Z' })
+    expect((await select('venue_favorites')).map((f) => f.venue_id).sort()).toEqual([1, 8])
+    const theirs = { household_id: TEST_HOUSEHOLD, venue_id: 3 }
+    expect((await demoClient.from('venue_favorites').insert(theirs)).error?.message).toMatch('row-level security')
+    await demoClient.from('venue_favorites').delete().eq('household_id', TEST_HOUSEHOLD).eq('venue_id', 2)
+    expect(db.venue_favorites.some((f) => f.household_id === TEST_HOUSEHOLD)).toBe(true)
+    // Starring twice keeps one row.
+    const ours = { household_id: HOUSEHOLD, venue_id: 1 }
+    await demoClient.from('venue_favorites').upsert(ours, { ignoreDuplicates: true })
+    expect(db.venue_favorites.filter((f) => f.household_id === HOUSEHOLD && f.venue_id === 1)).toHaveLength(1)
   })
 
   it('inserts only pending suggestions of this household, on a place it can see', async () => {

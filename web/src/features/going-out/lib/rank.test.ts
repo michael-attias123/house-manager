@@ -1,6 +1,6 @@
 import type { Venue, VenueDeal } from '@/lib/db-types'
 import { BEER_SHEVA } from './geo'
-import { buildSections, sheetDeals } from './rank'
+import { buildSections, NO_FILTERS, sheetDeals } from './rank'
 import { tonight } from './tonight'
 
 // 2026-11-03 is a Tuesday; Israel is UTC+2 then.
@@ -148,14 +148,14 @@ describe('buildSections', () => {
     const list = [...venues, club, other]
     const names = (f: Parameters<typeof buildSections>[4]) =>
       buildSections(list, deals, BEER_SHEVA.center, TUESDAY_8PM, f).all.map((i) => i.venue.name).sort()
-    expect(names({ kind: 'bars', dealsOnly: false })).toEqual(
+    expect(names({ ...NO_FILTERS, kind: 'bars', dealsOnly: false })).toEqual(
       ['בר סגור', 'בר קרוב', 'מועדון', 'מקום בלי מיקום', 'פאב רחוק'].sort(),
     )
-    expect(names({ kind: 'cafes', dealsOnly: false })).toEqual(['בית קפה'])
-    expect(names({ kind: 'all', dealsOnly: false })).toContain('משהו אחר')
-    expect(names({ kind: 'all', dealsOnly: true })).not.toContain('בית קפה')
-    expect(names({ kind: 'all', dealsOnly: true })).not.toContain('מועדון')
-    expect(buildSections(list, deals, BEER_SHEVA.center, TUESDAY_8PM, { kind: 'restaurants', dealsOnly: false }).now).toEqual([])
+    expect(names({ ...NO_FILTERS, kind: 'cafes', dealsOnly: false })).toEqual(['בית קפה'])
+    expect(names({ ...NO_FILTERS, kind: 'all', dealsOnly: false })).toContain('משהו אחר')
+    expect(names({ ...NO_FILTERS, kind: 'all', dealsOnly: true })).not.toContain('בית קפה')
+    expect(names({ ...NO_FILTERS, kind: 'all', dealsOnly: true })).not.toContain('מועדון')
+    expect(buildSections(list, deals, BEER_SHEVA.center, TUESDAY_8PM, { ...NO_FILTERS, kind: 'restaurants', dealsOnly: false }).now).toEqual([])
   })
 
   it("shows a pending deal to its own household only (RLS filters the other one's input)", () => {
@@ -174,7 +174,7 @@ describe('buildSections', () => {
     const sections = buildSections([v], [rejected, deal(v, 'מחר', { weekdays: [3] })], BEER_SHEVA.center, TUESDAY_8PM)
     expect(sections.now).toEqual([])
     expect(sections.all[0].deals.map((d) => d.deal.title)).toEqual(['מחר'])
-    expect(buildSections([v], [rejected], BEER_SHEVA.center, TUESDAY_8PM, { kind: 'all', dealsOnly: true }).all).toEqual([])
+    expect(buildSections([v], [rejected], BEER_SHEVA.center, TUESDAY_8PM, { ...NO_FILTERS, kind: 'all', dealsOnly: true }).all).toEqual([])
 
     const place = venue('מקום שנדחה', { status: 'rejected', household_id: HOME, source: 'community' })
     const onIt = deal(place, 'עכשיו', { status: 'pending', household_id: HOME })
@@ -191,6 +191,50 @@ describe('buildSections', () => {
     const { all } = buildSections([gone, v], [old], BEER_SHEVA.center, TUESDAY_8PM)
     expect(all.map((i) => i.venue.name)).toEqual(['בר'])
     expect(all[0].deals).toEqual([])
+  })
+})
+
+describe('favorites and keva card discounts', () => {
+  const near = venue('בר קרוב', north(100))
+  const far = venue('פאב רחוק', { ...north(2000), kind: 'pub' })
+  const closed = venue('בר סגור', { ...north(50), opening_hours: 'Mo-Fr 09:00-17:00' })
+  const cafe = venue('בית קפה', { ...north(300), kind: 'cafe' })
+  const venues = [near, far, closed, cafe]
+  const perk = (v: Venue, extra: Partial<VenueDeal> = {}) =>
+    deal(v, '10% הנחה בכרטיס חבר', { kind: 'member_card', starts_at: null, ends_at: null, ...extra })
+
+  it('puts the starred places first: on now, then open, then nearest; filters apply', () => {
+    const deals = [deal(far, 'בירה')]
+    const stars = new Set([near.id, far.id, closed.id, cafe.id])
+    const sections = buildSections(venues, deals, BEER_SHEVA.center, TUESDAY_8PM, NO_FILTERS, stars)
+    expect(sections.favorites.map((i) => i.venue.name)).toEqual(['פאב רחוק', 'בר קרוב', 'בית קפה', 'בר סגור'])
+    expect(sections.all.filter((i) => i.favorite)).toHaveLength(4)
+    // Still in the other sections too.
+    expect(sections.now.map((i) => i.venue.name)).toEqual(['פאב רחוק'])
+    const cafes = buildSections(venues, deals, BEER_SHEVA.center, TUESDAY_8PM, { ...NO_FILTERS, kind: 'cafes' }, stars)
+    expect(cafes.favorites.map((i) => i.venue.name)).toEqual(['בית קפה'])
+    expect(buildSections(venues, deals, BEER_SHEVA.center, TUESDAY_8PM).favorites).toEqual([])
+  })
+
+  it('keeps a keva card discount out of now and later, on the card last', () => {
+    const deals = [perk(near), perk(cafe, { starts_at: '22:00', ends_at: '23:00' }), deal(far, 'בירה'), perk(far)]
+    const sections = buildSections(venues, deals, BEER_SHEVA.center, TUESDAY_8PM)
+    expect(sections.now.map((i) => i.venue.name)).toEqual(['פאב רחוק'])
+    expect(sections.later).toEqual([])
+    const byName = new Map(sections.all.map((i) => [i.venue.name, i]))
+    expect(byName.get('בר קרוב')!.memberCard?.deal.title).toBe('10% הנחה בכרטיס חבר')
+    expect(byName.get('פאב רחוק')!.deals.map((d) => d.deal.kind)).toEqual(['happy_hour', 'member_card'])
+    expect(byName.get('בר סגור')!.memberCard).toBeNull()
+    expect(tonight(venues, deals, BEER_SHEVA.center, TUESDAY_8PM)).toMatchObject({ active: 1, later: 0 })
+  })
+
+  it('filters to places with a keva card discount; it counts as a deal', () => {
+    const deals = [perk(near), deal(far, 'בירה')]
+    const names = (f: Partial<typeof NO_FILTERS>) =>
+      buildSections(venues, deals, BEER_SHEVA.center, TUESDAY_8PM, { ...NO_FILTERS, ...f }).all.map((i) => i.venue.name)
+    expect(names({ memberCard: true })).toEqual(['בר קרוב'])
+    expect(names({ memberCard: true, kind: 'cafes' })).toEqual([])
+    expect(names({ dealsOnly: true }).sort()).toEqual(['בר קרוב', 'פאב רחוק'].sort())
   })
 })
 
