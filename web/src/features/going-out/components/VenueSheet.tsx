@@ -168,6 +168,8 @@ export function VenueSheet({ item, deals, now, admin, onClose, onAddDeal, onEdit
             </>
           ) : venue.source === 'hever' ? (
             'פרטי המקום מרשימת המסעדות של חבר טעמים. הדילים נכתבים על ידי משתמשי האפליקציה.'
+          ) : venue.source === 'visitbr7' ? (
+            'פרטי המקום מאתר התיירות של באר שבע (visitbr7). הדילים נכתבים על ידי משתמשי האפליקציה.'
           ) : (
             'המקום והדילים נכתבים על ידי משתמשי האפליקציה.'
           )}
