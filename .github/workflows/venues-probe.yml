@@ -14,10 +14,11 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: python scripts/venues-probe.py
+      # Unbuffered, so retries and the report appear in the log in order.
+      - run: python -u scripts/venues-probe.py
