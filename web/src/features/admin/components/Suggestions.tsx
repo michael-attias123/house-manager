@@ -1,18 +1,20 @@
-import { useState, type ReactNode } from 'react'
-import { AlertTriangle, Navigation } from 'lucide-react'
+import { useCallback, useState, type ReactNode } from 'react'
+import { AlertTriangle, Navigation, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { ConfirmButton } from '@/components/ui/ConfirmButton'
 import { EmptyState, ErrorBox, Loading } from '@/components/ui/Feedback'
 import { Field, Input } from '@/components/ui/Field'
+import { Nums } from '@/components/ui/Nums'
+import { DealForm } from '@/components/going-out/DealForm'
+import { VenueForm } from '@/components/going-out/VenueForm'
+import { useAdminUpdateDeal, useAdminUpdateVenue, useLocation } from '@/features/going-out/hooks'
+import { draftFromDeal } from '@/features/going-out/lib/draft'
+import { dealSchedule, formatAgo } from '@/features/going-out/lib/format'
 import { dealKind, venueKind } from '@/features/going-out/lib/kinds'
+import { wazeUrl } from '@/features/going-out/lib/search'
 import { useAdminSuggestions, useApproveVenueAndDeal, useMergeVenue, useReviewDeal, useReviewVenue } from '../hooks'
-import {
-  dealSchedule,
-  formatAgo,
-  wazeUrl,
-  type AdminSuggestion,
-} from '../lib/suggestions'
+import { suggestionDealFields, suggestionVenueDraft, type AdminSuggestion } from '../lib/suggestions'
 import { Hint, Tag } from './Tag'
 
 export function Suggestions() {
@@ -33,23 +35,11 @@ export function Suggestions() {
         )
       )}
       <Hint>
-        אישור מציג את ההצעה בלאן יוצאים לכל הבתים. הצעה שנדחתה נשארת רק אצל הבית שהציע, עם ההערה. מיזוג מעביר את
-        הדילים של מקום כפול אל המקום הקיים ומוחק את ההצעה.
+        אישור מציג את ההצעה בלאן יוצאים לכל הבתים. הצעה שנדחתה נשארת רק אצל הבית שהציע, ב„ההצעות שלי”, עם ההערה;
+        עריכה שלהם שולחת אותה שוב לאישור. עריכה כאן משנה את הפרטים ומשאירה את ההצעה ממתינה. מיזוג מעביר את הדילים
+        של מקום כפול אל המקום הקיים ומוחק את ההצעה.
       </Hint>
     </div>
-  )
-}
-
-/** Plain text with its numbers, times and dates isolated for RTL. */
-function Nums({ text }: { text: string }) {
-  return text.split(/(\d[\d:.–]*\d|\d)/).map((part, i) =>
-    i % 2 ? (
-      <span key={i} className="num">
-        {part}
-      </span>
-    ) : (
-      part
-    ),
   )
 }
 
@@ -73,9 +63,56 @@ function Duplicate({ name }: { name: string }) {
   )
 }
 
+/** The admin's edit of a row: the shared going-out forms, in admin mode. The row stays pending. */
+function useEditing() {
+  const [editing, setEditing] = useState(false)
+  // Stable: a Sheet re-focuses its first field when onClose changes.
+  const close = useCallback(() => setEditing(false), [])
+  return { editing, open: () => setEditing(true), close }
+}
+
+function EditDeal({ suggestion: s, onClose }: { suggestion: AdminSuggestion; onClose: () => void }) {
+  const update = useAdminUpdateDeal()
+  return (
+    <DealForm
+      mode="admin"
+      venues={[]}
+      place={{ name: s.venue_name, kind: s.venue_kind }}
+      initial={draftFromDeal(suggestionDealFields(s))}
+      onClose={onClose}
+      onSubmit={(fields) => update.mutateAsync({ id: s.deal_id!, fields }).then(onClose)}
+    />
+  )
+}
+
+function EditVenue({ suggestion: s, onClose }: { suggestion: AdminSuggestion; onClose: () => void }) {
+  const update = useAdminUpdateVenue()
+  const location = useLocation()
+  return (
+    <VenueForm
+      mode="admin"
+      venues={[]}
+      location={location}
+      initial={suggestionVenueDraft(s)}
+      onClose={onClose}
+      onSubmit={(fields) => update.mutateAsync({ id: s.venue_id, fields }).then(onClose)}
+    />
+  )
+}
+
+function EditButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button size="sm" variant="ghost" onClick={onClick}>
+      <Pencil size={14} />
+      עריכה
+    </Button>
+  )
+}
+
 function DealSuggestion({ suggestion: s }: { suggestion: AdminSuggestion }) {
   const review = useReviewDeal()
   const approveBoth = useApproveVenueAndDeal()
+  const edit = useEditing()
   const dealId = s.deal_id!
   const venuePending = s.venue_status !== 'approved'
   const error = review.error ?? approveBoth.error
@@ -96,7 +133,7 @@ function DealSuggestion({ suggestion: s }: { suggestion: AdminSuggestion }) {
           {s.deal_kind && <Tag>{dealKind(s.deal_kind).label}</Tag>}
         </div>
         <p className="text-sm text-ink-2">
-          <Nums text={dealSchedule(s)} />
+          <Nums text={dealSchedule({ ...s, kind: s.deal_kind ?? 'happy_hour' })} />
         </p>
         {s.note && <p className="text-sm text-ink-2">{s.note}</p>}
         <Origin suggestion={s} />
@@ -114,8 +151,11 @@ function DealSuggestion({ suggestion: s }: { suggestion: AdminSuggestion }) {
             : review.mutate({ id: dealId, approve: true })
         }
         onReject={(note) => review.mutate({ id: dealId, approve: false, note })}
-      />
+      >
+        <EditButton onClick={edit.open} />
+      </ReviewActions>
       {error && <ErrorBox error={error} />}
+      {edit.editing && <EditDeal suggestion={s} onClose={edit.close} />}
     </Card>
   )
 }
@@ -123,6 +163,7 @@ function DealSuggestion({ suggestion: s }: { suggestion: AdminSuggestion }) {
 function VenueSuggestion({ suggestion: s }: { suggestion: AdminSuggestion }) {
   const review = useReviewVenue()
   const merge = useMergeVenue()
+  const edit = useEditing()
   const located = s.venue_lat != null && s.venue_lng != null
   const error = review.error ?? merge.error
 
@@ -148,7 +189,7 @@ function VenueSuggestion({ suggestion: s }: { suggestion: AdminSuggestion }) {
 
       {located && (
         <a
-          href={wazeUrl(s.venue_lat!, s.venue_lng!)}
+          href={wazeUrl({ lat: s.venue_lat!, lng: s.venue_lng! })}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline"
@@ -178,8 +219,10 @@ function VenueSuggestion({ suggestion: s }: { suggestion: AdminSuggestion }) {
             מיזוג אל {s.similar_venue_name}
           </ConfirmButton>
         )}
+        <EditButton onClick={edit.open} />
       </ReviewActions>
       {error && <ErrorBox error={error} />}
+      {edit.editing && <EditVenue suggestion={s} onClose={edit.close} />}
     </Card>
   )
 }
@@ -190,7 +233,7 @@ interface ReviewActionsProps {
   busy: boolean
   onApprove: () => void
   onReject: (note: string) => void
-  /** More buttons after "דחייה" (the venue's merge). */
+  /** More buttons after "דחייה" (the venue's merge, "עריכה"). */
   children?: ReactNode
 }
 

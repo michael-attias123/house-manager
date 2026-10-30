@@ -28,9 +28,9 @@ export const KIND_FILTERS: { value: KindFilter; label: string; kinds: VenueKind[
   { value: 'cafes', label: 'בתי קפה', kinds: ['cafe'] },
 ]
 
-/** The tag on a household's own suggestion; nothing once approved. */
-export function statusTag(status: SuggestionStatus): string | null {
-  if (status === 'pending') return 'ממתין לאישור'
-  if (status === 'rejected') return 'לא אושר'
-  return null
-}
+/**
+ * Shown on the going-out screens: anything but a rejected suggestion. The
+ * household's pending ones show like the rest, without a tag; their status
+ * is in "ההצעות שלי".
+ */
+export const isShown = (row: { status: SuggestionStatus }) => row.status !== 'rejected'

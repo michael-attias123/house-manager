@@ -1,9 +1,12 @@
+// The deal form of going-out, shared by its screens and the admin's
+// suggestions tab (features may not import each other's components).
 import { useMemo, useState, type ReactNode } from 'react'
 import { Plus, Search } from 'lucide-react'
-import type { Venue, VenueDeal } from '@/lib/db-types'
+import type { SuggestionStatus, Venue } from '@/lib/db-types'
 import { WEEKDAY_LABELS } from '@/lib/dates'
 import { Button } from '@/components/ui/Button'
 import { Chip } from '@/components/ui/Chip'
+import { ErrorBox } from '@/components/ui/Feedback'
 import { Field, Input, Textarea } from '@/components/ui/Field'
 import { Segmented } from '@/components/ui/Segmented'
 import { Sheet } from '@/components/ui/Sheet'
@@ -16,11 +19,12 @@ import {
   type DealDraft,
   type DealFields,
   type DraftError,
-} from '../lib/draft'
-import { DEAL_KINDS, venueKind } from '../lib/kinds'
-import { crossesMidnight, jerusalemClock } from '../lib/schedule'
-import { searchVenues } from '../lib/search'
-import { StatusTag } from './Labels'
+  type FormMode,
+} from '@/features/going-out/lib/draft'
+import { DEAL_KINDS, venueKind } from '@/features/going-out/lib/kinds'
+import { crossesMidnight, jerusalemClock } from '@/features/going-out/lib/schedule'
+import { searchVenues } from '@/features/going-out/lib/search'
+import { FormNote } from './FormNote'
 
 const MESSAGES: Record<DraftError, ReactNode> = {
   venue_missing: 'צריך לבחור מקום',
@@ -52,64 +56,87 @@ function FieldError({ error }: { error: DraftError | undefined }) {
 }
 
 interface DealFormProps {
+  /** create: a new suggestion. edit: the household's own, not approved. admin: any deal, any status. */
+  mode: FormMode
+  /** The places to pick from. */
   venues: Venue[]
   initial: DealDraft
-  /** Editing the household's own deal that isn't approved yet. */
-  deal?: VenueDeal
+  /** edit: the suggestion's status; saving a rejected one sends it for approval again. */
+  status?: SuggestionStatus
+  /** admin: the deal's place (it stays), when `venues` doesn't have it. */
+  place?: Pick<Venue, 'name' | 'kind'>
   onClose: () => void
-  onSubmit: (fields: DealFields) => void
-  /** "המקום לא ברשימה?": the draft so far and what was typed in the search. */
-  onAddVenue: (draft: DealDraft, name: string) => void
+  /** A promise keeps the form open, busy, until it settles; a failure shows here. */
+  onSubmit: (fields: DealFields) => void | Promise<unknown>
+  /** "המקום לא ברשימה?": the draft so far and what was typed in the search. Create only. */
+  onAddVenue?: (draft: DealDraft, name: string) => void
 }
 
-export function DealForm({ venues, initial, deal, onClose, onSubmit, onAddVenue }: DealFormProps) {
+export function DealForm({ mode, venues, initial, status, place, onClose, onSubmit, onAddVenue }: DealFormProps) {
   const [draft, setDraft] = useState(initial)
   const [query, setQuery] = useState('')
   const [checked, setChecked] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
   const today = jerusalemClock(new Date()).day
   const errors = checked ? validateDraft(draft, today) : {}
-  const venue = venues.find((v) => v.id === draft.venueId)
+  const venue = venues.find((v) => v.id === draft.venueId) ?? (draft.venueId != null ? place : undefined)
+  const editing = mode !== 'create'
   const results = useMemo(() => searchVenues(venues, query), [venues, query])
   const set = (patch: Partial<DealDraft>) => setDraft((d) => ({ ...d, ...patch }))
 
   const toggleDay = (day: number) =>
     set({ weekdays: draft.weekdays.includes(day) ? draft.weekdays.filter((d) => d !== day) : [...draft.weekdays, day] })
 
-  function save() {
+  async function save() {
     setChecked(true)
     if (Object.keys(validateDraft(draft, today)).length > 0) return
-    onSubmit(draftToFields(draft))
+    setError(null)
+    const pending = onSubmit(draftToFields(draft))
+    if (!(pending instanceof Promise)) return
+    setBusy(true)
+    try {
+      await pending
+    } catch (err) {
+      setError(err)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
     <Sheet
       open
       onClose={onClose}
-      title={deal ? 'עריכת דיל' : 'הוספת דיל'}
+      title={editing ? 'עריכת דיל' : 'הוספת דיל'}
       footer={
-        <Button className="w-full" onClick={save}>
-          {deal ? 'שמירת השינויים' : 'שמירה'}
+        <Button className="w-full" onClick={save} disabled={busy}>
+          {editing ? 'שמירת השינויים' : 'שמירה'}
         </Button>
       }
     >
       <div className="space-y-4">
+        {/* A new deal's "sent for approval" comes as a notice after saving. */}
+        {editing && <FormNote mode={mode} status={status} />}
         <div className="space-y-1.5">
           <span className="block text-sm font-medium text-ink-2">מקום</span>
           {venue ? (
             <div className="flex items-center gap-2 rounded-xl border border-line px-3 py-2">
               <span aria-hidden>{venueKind(venue.kind).emoji}</span>
               <span className="min-w-0 flex-1 truncate font-medium">{venue.name}</span>
-              <StatusTag status={venue.status} />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  set({ venueId: null })
-                  setQuery('')
-                }}
-              >
-                שינוי
-              </Button>
+              {/* An admin edits the deal, not where it is. */}
+              {mode !== 'admin' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    set({ venueId: null })
+                    setQuery('')
+                  }}
+                >
+                  שינוי
+                </Button>
+              )}
             </div>
           ) : (
             <div className="space-y-1">
@@ -134,17 +161,18 @@ export function DealForm({ venues, initial, deal, onClose, onSubmit, onAddVenue 
                       >
                         <span aria-hidden>{venueKind(v.kind).emoji}</span>
                         <span className="min-w-0 flex-1 truncate">{v.name}</span>
-                        <StatusTag status={v.status} />
                       </button>
                     </li>
                   ))}
                 </ul>
               )}
               {query.trim() && results.length === 0 && <p className="text-sm text-ink-3">לא נמצא מקום בשם הזה</p>}
-              <Button variant="ghost" size="sm" className="px-1" onClick={() => onAddVenue(draft, query.trim())}>
-                <Plus size={14} />
-                המקום לא ברשימה? הוספת מקום
-              </Button>
+              {onAddVenue && (
+                <Button variant="ghost" size="sm" className="px-1" onClick={() => onAddVenue(draft, query.trim())}>
+                  <Plus size={14} />
+                  המקום לא ברשימה? הוספת מקום
+                </Button>
+              )}
             </div>
           )}
           <FieldError error={errors.venue} />
@@ -262,6 +290,8 @@ export function DealForm({ venues, initial, deal, onClose, onSubmit, onAddVenue 
             </>
           )}
         </Field>
+
+        {error != null && <ErrorBox error={error} />}
       </div>
     </Sheet>
   )

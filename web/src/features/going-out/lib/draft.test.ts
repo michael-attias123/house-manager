@@ -1,5 +1,5 @@
 import type { VenueDeal } from '@/lib/db-types'
-import { draftFromDeal, draftToFields, emptyDraft, validateDraft, type DealDraft } from './draft'
+import { adminDealArgs, draftFromDeal, draftToFields, emptyDraft, validateDraft, type DealDraft } from './draft'
 
 const TODAY = '2026-11-03'
 const draft = (extra: Partial<DealDraft> = {}): DealDraft => ({
@@ -87,5 +87,21 @@ describe('draftToFields', () => {
       note: 'כניסה חופשית',
     } as unknown as VenueDeal
     expect(draftToFields(draftFromDeal(saved))).toEqual({ ...saved, starts_at: '21:00', ends_at: '23:30' })
+  })
+
+  it('fills the form from a deal and turns an edit into admin_update_deal arguments', () => {
+    const saved = draftFromDeal({
+      venue_id: 4, title: 'עסקית', kind: 'happy_hour', weekdays: [0, 1], starts_at: '12:00:00', ends_at: '16:00:00',
+      valid_from: null, valid_until: null, note: null,
+    })
+    expect(saved).toEqual({
+      venueId: 4, title: 'עסקית', kind: 'happy_hour', weekdays: [0, 1], allHours: false, startsAt: '12:00',
+      endsAt: '16:00', date: '', note: '',
+    })
+    const edited = draftToFields({ ...saved, title: ' עסקית צהריים ', note: 'עם שתייה' })
+    expect(adminDealArgs('d1', edited)).toEqual({
+      p_id: 'd1', p_title: 'עסקית צהריים', p_kind: 'happy_hour', p_weekdays: [0, 1], p_starts_at: '12:00',
+      p_ends_at: '16:00', p_valid_from: null, p_valid_until: null, p_note: 'עם שתייה',
+    })
   })
 })

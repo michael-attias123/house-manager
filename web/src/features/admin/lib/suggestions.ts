@@ -1,5 +1,7 @@
 import type { DealKind, SuggestionStatus, VenueKind } from '@/lib/db-types'
-import { parseISO, WEEKDAY_LABELS, type ISODate } from '@/lib/dates'
+import type { ISODate } from '@/lib/dates'
+import type { DealFields } from '@/features/going-out/lib/draft'
+import type { VenueDraft } from '@/features/going-out/lib/venueDraft'
 
 /**
  * A row of admin_list_suggestions() (20261101000100_going_out.sql): a pending
@@ -33,61 +35,38 @@ export interface AdminSuggestion {
   /** For a pending place: an approved one with the same normalized name or within 50 m. */
   similar_venue_id: number | null
   similar_venue_name: string | null
+  // The rest of the place, so an admin edit keeps what the row doesn't show.
+  venue_opening_hours: string | null
+  venue_website: string | null
+  venue_phone: string | null
+  venue_instagram: string | null
 }
 
-/** "א׳ ג׳ ה׳", or "כל יום" for none or all seven. */
-export function formatWeekdays(weekdays: readonly number[] | null | undefined): string {
-  const days = [...new Set(weekdays ?? [])].filter((d) => d >= 0 && d <= 6).sort()
-  if (days.length === 0 || days.length === 7) return 'כל יום'
-  return days.map((d) => WEEKDAY_LABELS[d]).join(' ')
-}
-
-const hhmm = (time: string) => time.slice(0, 5)
-
-/** "19:00–23:00", "22:00–02:00 עד למחרת", or "כל שעות הפתיחה" without times. */
-export function formatHours(startsAt: string | null, endsAt: string | null): string {
-  if (startsAt && endsAt) {
-    const range = `${hhmm(startsAt)}–${hhmm(endsAt)}`
-    return endsAt < startsAt ? `${range} עד למחרת` : range
+/** A deal row as the deal form's starting values (call on a deal row only). */
+export function suggestionDealFields(s: AdminSuggestion): DealFields {
+  return {
+    venue_id: s.venue_id,
+    title: s.title ?? '',
+    kind: s.deal_kind ?? 'happy_hour',
+    weekdays: s.weekdays ?? [],
+    starts_at: s.starts_at,
+    ends_at: s.ends_at,
+    valid_from: s.valid_from,
+    valid_until: s.valid_until,
+    note: s.note,
   }
-  if (startsAt) return `מ־${hhmm(startsAt)}`
-  if (endsAt) return `עד ${hhmm(endsAt)}`
-  return 'כל שעות הפתיחה'
 }
 
-const dayFormat = new Intl.DateTimeFormat('he-IL', { day: 'numeric', month: 'numeric', year: 'numeric' })
-const day = (iso: ISODate) => dayFormat.format(parseISO(iso))
-
-/** "ב־5.11.2026" (one day), "1.11.2026–30.11.2026", "מ־…", "עד …"; null without dates. */
-export function formatValidity(from: ISODate | null, until: ISODate | null): string | null {
-  if (from && until) return from === until ? `ב־${day(from)}` : `${day(from)}–${day(until)}`
-  if (from) return `מ־${day(from)}`
-  if (until) return `עד ${day(until)}`
-  return null
-}
-
-/** Days, hours and dates of a deal row, joined by " · ". An event on a date has no days. */
-export function dealSchedule(
-  s: Pick<AdminSuggestion, 'deal_kind' | 'weekdays' | 'starts_at' | 'ends_at' | 'valid_from' | 'valid_until'>,
-): string {
-  const oneOff = s.deal_kind === 'event' && !s.weekdays?.length && (s.valid_from || s.valid_until)
-  return [oneOff ? null : formatWeekdays(s.weekdays), formatHours(s.starts_at, s.ends_at), formatValidity(s.valid_from, s.valid_until)]
-    .filter(Boolean)
-    .join(' · ')
-}
-
-/** "לפני רגע", "לפני 5 דקות", "לפני שעה", "לפני 2 שעות", "לפני 3 ימים". */
-export function formatAgo(timestamp: string, now: Date = new Date()): string {
-  const minutes = Math.floor((now.getTime() - new Date(timestamp).getTime()) / 60_000)
-  if (minutes < 1) return 'לפני רגע'
-  if (minutes < 60) return minutes === 1 ? 'לפני דקה' : `לפני ${minutes} דקות`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return hours === 1 ? 'לפני שעה' : `לפני ${hours} שעות`
-  const days = Math.floor(hours / 24)
-  return days === 1 ? 'לפני יום' : `לפני ${days} ימים`
-}
-
-/** Opens the spot in Waze, to check where a suggested place is. */
-export function wazeUrl(lat: number, lng: number): string {
-  return `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`
+/** The row's place as the place form's starting values. */
+export function suggestionVenueDraft(s: AdminSuggestion): VenueDraft {
+  return {
+    name: s.venue_name,
+    kind: s.venue_kind,
+    address: s.venue_address ?? '',
+    instagram: s.venue_instagram ?? '',
+    website: s.venue_website ?? '',
+    phone: s.venue_phone ?? '',
+    openingHours: s.venue_opening_hours ?? '',
+    point: s.venue_lat != null && s.venue_lng != null ? { lat: s.venue_lat, lng: s.venue_lng } : null,
+  }
 }

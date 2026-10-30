@@ -1,6 +1,7 @@
 import type { Venue, VenueDeal } from '@/lib/db-types'
 import { BEER_SHEVA } from './geo'
 import { buildSections, sheetDeals } from './rank'
+import { tonight } from './tonight'
 
 // 2026-11-03 is a Tuesday; Israel is UTC+2 then.
 const at = (local: string) => new Date(`${local}:00+02:00`)
@@ -26,7 +27,10 @@ const venue = (name: string, extra: Partial<Venue> = {}): Venue => ({
   created_by: null,
   status: 'approved',
   hidden: false,
+  hidden_by_admin: false,
   review_note: null,
+  suggested_household_id: null,
+  admin_edited_at: null,
   created_at: '2026-11-01T00:00:00Z',
   updated_at: '2026-11-01T00:00:00Z',
   ...extra,
@@ -164,12 +168,20 @@ describe('buildSections', () => {
     expect(theirs.all[0].deals).toEqual([])
   })
 
-  it('never puts a rejected suggestion in "now", and shows it last on the card', () => {
+  it('leaves out rejected deals and rejected places everywhere', () => {
     const v = venue('בר', north(10))
     const rejected = deal(v, 'נדחה', { status: 'rejected', household_id: HOME })
-    expect(buildSections([v], [rejected], BEER_SHEVA.center, TUESDAY_8PM).now).toEqual([])
-    const card = buildSections([v], [rejected, deal(v, 'מחר', { weekdays: [3] })], BEER_SHEVA.center, TUESDAY_8PM)
-    expect(card.all[0].deals.map((d) => d.deal.title)).toEqual(['מחר', 'נדחה'])
+    const sections = buildSections([v], [rejected, deal(v, 'מחר', { weekdays: [3] })], BEER_SHEVA.center, TUESDAY_8PM)
+    expect(sections.now).toEqual([])
+    expect(sections.all[0].deals.map((d) => d.deal.title)).toEqual(['מחר'])
+    expect(buildSections([v], [rejected], BEER_SHEVA.center, TUESDAY_8PM, { kind: 'all', dealsOnly: true }).all).toEqual([])
+
+    const place = venue('מקום שנדחה', { status: 'rejected', household_id: HOME, source: 'community' })
+    const onIt = deal(place, 'עכשיו', { status: 'pending', household_id: HOME })
+    const { now, later, all } = buildSections([place], [onIt], BEER_SHEVA.center, TUESDAY_8PM)
+    expect([now, later, all]).toEqual([[], [], []])
+    expect(tonight([place], [onIt], BEER_SHEVA.center, TUESDAY_8PM)).toMatchObject({ active: 0, pick: null })
+    expect(tonight([v], [rejected], BEER_SHEVA.center, TUESDAY_8PM)).toMatchObject({ active: 0, pick: null })
   })
 
   it('leaves out hidden places and expired deals', () => {
@@ -183,19 +195,20 @@ describe('buildSections', () => {
 })
 
 describe('sheetDeals', () => {
-  it('orders active, later, other days, then the household’s own suggestions', () => {
+  it('orders active, later, other days, the household’s pending ones among them; no rejected or expired', () => {
     const v = venue('בר')
     const list = sheetDeals(
       [
-        deal(v, 'שלנו', { status: 'pending', household_id: HOME }),
+        deal(v, 'שלנו', { status: 'pending', household_id: HOME, weekdays: [4] }),
         deal(v, 'מחר', { weekdays: [3] }),
         deal(v, 'בעוד שעה', { starts_at: '21:00', ends_at: '22:00' }),
         deal(v, 'עכשיו'),
         deal(v, 'פג', { valid_until: '2026-10-01' }),
         deal(v, 'נדחה ופג', { status: 'rejected', household_id: HOME, valid_until: '2026-10-01' }),
+        deal(v, 'נדחה', { status: 'rejected', household_id: HOME }),
       ],
       TUESDAY_8PM,
     )
-    expect(list.map((d) => d.deal.title)).toEqual(['עכשיו', 'בעוד שעה', 'מחר', 'שלנו', 'נדחה ופג'])
+    expect(list.map((d) => d.deal.title)).toEqual(['עכשיו', 'בעוד שעה', 'מחר', 'שלנו'])
   })
 })

@@ -28,8 +28,8 @@ export const adminKeys = {
   suggestions: ['admin', 'suggestions'] as const,
 }
 
-/** The going-out screens' places and deals (features/going-out), by key prefix. */
-const goingOutPrefixes = [['venues'], ['venue-deals']] as const
+/** The going-out screens' places, deals and "ההצעות שלי" (features/going-out), by key prefix. */
+const goingOutPrefixes = [['venues'], ['venue-deals'], ['my-suggestions']] as const
 
 /** Only decides what to show: the server checks is_admin() on every admin call. */
 export function useIsAdmin() {

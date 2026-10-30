@@ -1,9 +1,11 @@
 // The main screen's sections. Pure: the venues and deals come in already
 // filtered by RLS (the global catalog plus this household's suggestions).
+// A household's pending suggestions show like any other; rejected ones only
+// in "ההצעות שלי".
 import type { Venue, VenueDeal } from '@/lib/db-types'
 import { distanceKm, venuePoint, type LatLng } from './geo'
 import { openState, type OpenState } from './hours'
-import { KIND_FILTERS, type KindFilter } from './kinds'
+import { isShown, KIND_FILTERS, type KindFilter } from './kinds'
 import { dealWindow, jerusalemClock, LATER_MINUTES, parseTime, type DealState, type DealWindow } from './schedule'
 
 export interface Filters {
@@ -23,7 +25,7 @@ export interface VenueItem {
   /** From the origin; null for a place without a location. */
   distanceKm: number | null
   open: OpenState
-  /** The card's deals: on now first, a rejected suggestion last; expired ones left out. */
+  /** The card's deals: on now first; expired ones left out. */
   deals: DealView[]
   /** In "later": minutes until the first start. */
   startsIn: number | null
@@ -37,8 +39,6 @@ export interface Sections {
 
 const STATE_ORDER: Record<DealState, number> = { active: 0, later: 1, upcoming: 2, today_over: 3, not_today: 4 }
 
-/** A deal that counts: anything but a rejected suggestion. */
-export const isLive = (deal: VenueDeal) => deal.status !== 'rejected'
 
 function byWhen(a: DealView, b: DealView) {
   return (
@@ -52,22 +52,14 @@ export function dealViews(deals: VenueDeal[], now: Date): DealView[] {
   return deals.map((deal) => ({ deal, window: dealWindow(deal, now) }))
 }
 
-function cardDeals(deals: VenueDeal[], now: Date): DealView[] {
-  return dealViews(deals, now)
-    .filter((d) => !d.window.expired)
-    .sort((a, b) => Number(!isLive(a.deal)) - Number(!isLive(b.deal)) || byWhen(a, b))
-}
-
 /**
- * The place page's list: approved deals by when they're on (active, later,
- * other days), then this household's own suggestions. An expired approved
- * deal is left out; an expired suggestion stays so it can be deleted.
+ * A card's deals, and the place page's list: by when they're on (active,
+ * later, other days). Rejected and expired ones are left out.
  */
 export function sheetDeals(deals: VenueDeal[], now: Date): DealView[] {
-  const views = dealViews(deals, now)
-  const approved = views.filter((d) => d.deal.status === 'approved' && !d.window.expired).sort(byWhen)
-  const own = views.filter((d) => d.deal.status !== 'approved').sort(byWhen)
-  return [...approved, ...own]
+  return dealViews(deals.filter(isShown), now)
+    .filter((d) => !d.window.expired)
+    .sort(byWhen)
 }
 
 /** Minutes from now until a closed place opens, when that's known. */
@@ -90,26 +82,26 @@ export function buildSections(
   filters: Filters = NO_FILTERS,
 ): Sections {
   const byVenue = new Map<number, VenueDeal[]>()
-  for (const d of deals) byVenue.set(d.venue_id, [...(byVenue.get(d.venue_id) ?? []), d])
+  for (const d of deals.filter(isShown)) byVenue.set(d.venue_id, [...(byVenue.get(d.venue_id) ?? []), d])
   const kinds = KIND_FILTERS.find((f) => f.value === filters.kind)?.kinds ?? null
 
   const items: VenueItem[] = venues
-    .filter((v) => !v.hidden && (!kinds || kinds.includes(v.kind)))
+    .filter((v) => !v.hidden && isShown(v) && (!kinds || kinds.includes(v.kind)))
     .map((venue) => {
       const point = venuePoint(venue)
       return {
         venue,
         distanceKm: point ? distanceKm(origin, point) : null,
         open: openState(venue.opening_hours, now),
-        deals: cardDeals(byVenue.get(venue.id) ?? [], now),
+        deals: sheetDeals(byVenue.get(venue.id) ?? [], now),
         startsIn: null,
       }
     })
-    .filter((item) => !filters.dealsOnly || item.deals.some((d) => isLive(d.deal)))
+    .filter((item) => !filters.dealsOnly || item.deals.length > 0)
 
   // Unknown hours never hide a place: only one known to be closed is left out.
   const onNow = items
-    .filter((i) => i.open.state !== 'closed' && i.deals.some((d) => isLive(d.deal) && d.window.state === 'active'))
+    .filter((i) => i.open.state !== 'closed' && i.deals.some((d) => d.window.state === 'active'))
     .sort(nearestFirst)
   const inNow = new Set(onNow.map((i) => i.venue.id))
 
@@ -117,7 +109,7 @@ export function buildSections(
   for (const item of items) {
     if (inNow.has(item.venue.id)) continue
     const starts = item.deals
-      .filter((d) => isLive(d.deal) && d.window.state === 'later')
+      .filter((d) => d.window.state === 'later')
       .map((d) => d.window.startsIn!)
       // Same rule as "now", at the start time: left out only if known to be closed then.
       .filter((m) => openState(item.venue.opening_hours, new Date(now.getTime() + m * 60_000)).state !== 'closed')
@@ -126,7 +118,7 @@ export function buildSections(
     if (
       opening != null &&
       opening <= LATER_MINUTES &&
-      item.deals.some((d) => isLive(d.deal) && d.window.state === 'active' && d.window.start == null)
+      item.deals.some((d) => d.window.state === 'active' && d.window.start == null)
     ) {
       starts.push(opening)
     }
