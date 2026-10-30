@@ -144,7 +144,7 @@ class FakeResponse(io.BytesIO):
         return False
 
 
-def test_fetch_retries_and_falls_back_to_the_second_endpoint():
+def test_fetch_retries_on_the_next_endpoint():
     calls, pauses = [], []
     answers = [
         OSError("connection reset"),
@@ -161,7 +161,7 @@ def test_fetch_retries_and_falls_back_to_the_second_endpoint():
 
     elements = v.fetch_elements(urlopen=urlopen, sleep=pauses.append)
     assert elements == ELEMENTS[:2]
-    assert calls == [v.ENDPOINTS[0], v.ENDPOINTS[1], v.ENDPOINTS[0]]
+    assert calls == [v.ENDPOINTS[0], v.ENDPOINTS[1], v.ENDPOINTS[2]]
     assert pauses == [5, 10]
 
 

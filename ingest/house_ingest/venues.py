@@ -31,7 +31,11 @@ from pathlib import Path
 
 log = logging.getLogger("house_ingest.venues")
 
-ENDPOINTS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]
+ENDPOINTS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+]
 USER_AGENT = "house-manager-venues/1"
 
 # OSM amenity → venues.kind.
