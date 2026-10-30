@@ -97,11 +97,14 @@ its components.
 ## Going out ("יוצאים")
 
 Places in Be'er Sheva and their deals (`features/going-out`, migrations
-`*_going_out.sql`, `*_venue_favorites.sql`, `*_hever_teamim.sql`). Places come
+`*_going_out.sql`, `*_venue_favorites.sql`, `*_hever_teamim.sql`,
+`*_visitbr7_bars.sql`). Places come
 from OpenStreetMap (`ingest/house_ingest/venues.py`, weekly `venues.yml`; it
 touches only `source = 'osm'`, keeps admin edits and details other sources
 filled in), from the "חבר טעמים" list (`source = 'hever'`, a one-time import
-made with `scripts/hever-to-sql.py`, see docs/setup.md) and from households
+made with `scripts/hever-to-sql.py`, see docs/setup.md), from the city's
+tourism site (`source = 'visitbr7'`, a one-time import of its bars made with
+`scripts/visitbr7-to-sql.py`) and from households
 (`community`, approved by an admin). Deals are written by households and
 approved in the admin's "הצעות" tab; `member_card` deals ("כרטיס חבר") are
 standing discounts and never count as "on now". Opening hours are OSM syntax,

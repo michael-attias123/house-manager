@@ -83,7 +83,7 @@ class Venue:
 
 COLUMNS = [f.name for f in fields(Venue)]
 # Kept when OSM has none: other sources fill them in (see the upsert in load()).
-KEPT = ("phone", "website", "opening_hours", "cuisine")
+KEPT = ("phone", "website", "opening_hours", "cuisine", "instagram", "address")
 
 
 def _tag(tags: dict, *keys: str) -> str | None:
@@ -242,8 +242,8 @@ def sync_venues(conn, venues: list[Venue]) -> dict:
         # An admin's edit wins over OSM (admin_update_venue), and a place an
         # admin hid is not shown again; both are still hidden when gone from OSM.
         edited = "venues.admin_edited_at is not null"
-        # Details OSM lacks but another source gave (the "חבר טעמים" import)
-        # are kept until OSM has its own.
+        # Details OSM lacks but another source gave (the "חבר טעמים" and
+        # visitbr7 imports) are kept until OSM has its own.
         new = {c: f"coalesce(excluded.{c}, venues.{c})" if c in KEPT else f"excluded.{c}" for c in data_cols}
         cur.execute(
             f"""

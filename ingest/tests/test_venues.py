@@ -301,24 +301,26 @@ def test_sync_keeps_admin_edits_and_admin_hides():
 
 @pytest.mark.skipif(not DB_URL, reason="TEST_DATABASE_URL not set")
 def test_sync_keeps_details_another_source_filled_in():
-    """Runs after the tests above. The "חבר טעמים" import fills in what OSM lacks."""
+    """Runs after the tests above. The "חבר טעמים" and visitbr7 imports fill in what OSM lacks."""
     import psycopg
 
     venues = v.parse_venues(ELEMENTS)
     place = next(x for x in venues if x.phone is None and x.opening_hours is None and x.osm_ref != "node/9000000003")
-    filled = ("08-1111111", "https://example.com/hever", "Su-Th 12:00-23:00", "בשרים; כשר")
+    filled = ("08-1111111", "https://example.com/hever", "Su-Th 12:00-23:00", "בשרים; כשר", "bar.filled", "רחוב 1")
 
     def details(conn):
         return conn.execute(
-            "select phone, website, opening_hours, cuisine from venues where osm_ref = %s", (place.osm_ref,)
+            "select phone, website, opening_hours, cuisine, instagram, address from venues where osm_ref = %s",
+            (place.osm_ref,),
         ).fetchone()
 
     with psycopg.connect(DB_URL) as conn:
         assert v.sync_venues(conn, venues)["status"] == "ok"
         conn.execute(
             "update venues set phone = %s, website = coalesce(website, %s), opening_hours = %s,"
-            " cuisine = coalesce(cuisine, %s) where osm_ref = %s",
-            (filled[0], filled[1], filled[2], filled[3], place.osm_ref),
+            " cuisine = coalesce(cuisine, %s), instagram = coalesce(instagram, %s), address = coalesce(address, %s)"
+            " where osm_ref = %s",
+            (*filled, place.osm_ref),
         )
         conn.commit()
         before = details(conn)
