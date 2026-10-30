@@ -1,7 +1,7 @@
 import type { NotificationPrefs } from '@/lib/db-types'
 
 /** The columns of notification_prefs, in the order the card lists them. */
-export const PREF_KEYS = ['bills', 'chores', 'partner', 'weekly', 'admin'] as const
+export const PREF_KEYS = ['bills', 'chores', 'partner', 'weekly', 'going_out', 'admin'] as const
 export type PrefKey = (typeof PREF_KEYS)[number]
 
 export const PREF_TITLES: Record<PrefKey, string> = {
@@ -9,6 +9,7 @@ export const PREF_TITLES: Record<PrefKey, string> = {
   chores: 'מטלות',
   partner: 'פעולות של בן/בת הזוג',
   weekly: 'סיכום שבועי',
+  going_out: 'לאן יוצאים',
   admin: 'ניהול',
 }
 
@@ -29,6 +30,7 @@ export function prefsOrDefault(
       chores: false,
       partner: false,
       weekly: false,
+      going_out: false,
       admin: false,
     }
   )

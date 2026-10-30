@@ -106,7 +106,7 @@ export function withDefaults(table: string, row: Row): Row {
       base.updated_at = nowIso()
       break
     case 'notification_prefs':
-      Object.assign(base, { bills: false, chores: false, partner: false, weekly: false, admin: false, updated_at: nowIso() })
+      Object.assign(base, { bills: false, chores: false, partner: false, weekly: false, going_out: false, admin: false, updated_at: nowIso() })
       break
   }
   return { ...base, ...row }

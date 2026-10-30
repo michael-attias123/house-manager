@@ -276,6 +276,8 @@ export interface NotificationPrefs {
   chores: boolean
   partner: boolean
   weekly: boolean
+  /** A going-out suggestion of the household was approved or rejected. */
+  going_out: boolean
   /** Only counts for admins. */
   admin: boolean
   updated_at?: string
