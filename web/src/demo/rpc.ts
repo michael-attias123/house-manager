@@ -135,11 +135,14 @@ const MEMBER_COLUMNS: [table: string, column: string][] = [
   ['bill_payments', 'paid_by'],
   ['chores', 'assignee_id'],
   ['chore_completions', 'done_by'],
+  ['venues', 'created_by'],
+  ['venue_deals', 'created_by'],
+  ['venue_deals', 'reviewed_by'],
 ]
 
 function moveMemberRefs(householdId: string, from: string, to: string) {
   for (const [table, column] of MEMBER_COLUMNS) {
-    for (const row of db[table]) if (row.household_id === householdId && row[column] === from) row[column] = to
+    for (const row of db[table] ?? []) if (row.household_id === householdId && row[column] === from) row[column] = to
   }
 }
 
@@ -185,6 +188,66 @@ function deleteAuthUser(userId: string) {
 }
 
 const count = (table: string, householdId: string) => db[table].filter((r) => r.household_id === householdId).length
+
+// --- Going out (20261101000100_going_out.sql) -------------------------------
+
+// A browser that saved its demo before these tables existed may not have them.
+const venues = () => db.venues ?? []
+const venueDeals = () => db.venue_deals ?? []
+
+const isMember = (householdId: string | null) =>
+  householdId != null && members(householdId).some((m) => m.user_id === currentUserId())
+
+/** Haversine, in metres. */
+function metresBetween(a: Row, b: Row): number {
+  const rad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = rad(b.lat - a.lat)
+  const dLng = rad(b.lng - a.lng)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(h))
+}
+
+/** An approved place a suggested one may repeat: the same normalized name, else the nearest within 50 m. */
+function similarVenue(venue: Row): Row | null {
+  const approved = venues().filter((v) => v.id !== venue.id && v.status === 'approved' && !v.hidden)
+  const name = normName(String(venue.name))
+  const sameName = approved.find((v) => normName(String(v.name)) === name)
+  if (sameName) return sameName
+  if (venue.lat == null || venue.lng == null) return null
+  return (
+    approved
+      .filter((v) => v.lat != null && v.lng != null)
+      .map((v) => ({ v, metres: metresBetween(venue, v) }))
+      .filter((x) => x.metres <= 50)
+      .sort((a, b) => a.metres - b.metres)[0]?.v ?? null
+  )
+}
+
+// Postgres rejects these rows with the tables' check constraints.
+function checkVenue(v: Row) {
+  if ((v.household_id == null) !== (v.status === 'approved')) throw new Error('new row for relation "venues" violates check constraint')
+}
+
+function checkDeal(d: Row) {
+  if (d.household_id == null && d.status !== 'approved') throw new Error('new row for relation "venue_deals" violates check constraint')
+}
+
+/** One admin_list_suggestions() row, in its column order. */
+function suggestionRow(itemType: 'deal' | 'venue', venue: Row, deal: Row | null): Row {
+  const similar = venue.status === 'pending' ? similarVenue(venue) : null
+  const owner = deal ?? venue
+  return {
+    item_type: itemType, deal_id: deal?.id ?? null, venue_id: venue.id, venue_name: venue.name, venue_kind: venue.kind,
+    venue_status: venue.status, venue_lat: venue.lat ?? null, venue_lng: venue.lng ?? null, venue_address: venue.address ?? null,
+    title: deal?.title ?? null, deal_kind: deal?.kind ?? null, weekdays: deal ? (deal.weekdays ?? []) : null,
+    starts_at: deal?.starts_at ?? null, ends_at: deal?.ends_at ?? null, valid_from: deal?.valid_from ?? null,
+    valid_until: deal?.valid_until ?? null, note: deal?.note ?? null, household_id: owner.household_id,
+    household_name: db.households.find((h) => h.id === owner.household_id)?.name ?? null,
+    // venues has no created_at: a suggested place was last touched when it was added.
+    created_at: deal ? deal.created_at : (venue.updated_at ?? venue.created_at),
+    similar_venue_id: similar?.id ?? null, similar_venue_name: similar?.name ?? null,
+  }
+}
 
 export const RPCS: Record<string, (args: Args) => unknown> = {
   create_household: ({ p_name, p_display_name }) => {
@@ -453,6 +516,16 @@ export const RPCS: Record<string, (args: Args) => unknown> = {
     }))
   },
 
+  // "עדיין בתוקף?": any member who can see the deal (RLS), at most once per 12 hours.
+  confirm_deal: ({ p_id }) => {
+    const deal = venueDeals().find((d) => d.id === p_id)
+    if (!deal || (deal.status !== 'approved' && !isMember(deal.household_id))) throw new Error('not found')
+    const now = Date.now()
+    const last = deal.last_confirmed_at ? Date.parse(deal.last_confirmed_at) : 0
+    if (now - last >= 12 * 3_600_000) deal.last_confirmed_at = new Date(now).toISOString()
+    return null
+  },
+
   is_admin: () => isAdmin(),
 
   // No push in the demo: the card says so, and the test button only "sends".
@@ -512,6 +585,8 @@ export const RPCS: Record<string, (args: Args) => unknown> = {
     const householdId = String(p_household_id)
     if (members(householdId).some((m) => m.user_id === currentUserId())) throw new Error('cannot delete your own household')
     if (!db.households.some((h) => h.id === householdId)) throw new Error('not found')
+    // The before-delete trigger: approved deals belong to everyone, so they stay.
+    for (const d of venueDeals()) if (d.household_id === householdId && d.status === 'approved') d.household_id = null
     // on delete cascade: every row that belongs to the household goes with it.
     db.households = db.households.filter((h) => h.id !== householdId)
     for (const table of Object.keys(db)) db[table] = db[table].filter((r) => r.household_id !== householdId)
@@ -549,6 +624,61 @@ export const RPCS: Record<string, (args: Args) => unknown> = {
     if (db.app_admins.some((a) => a.user_id === userId)) throw new Error('cannot delete an admin')
     if (!db.auth_users.some((u) => u.id === userId)) throw new Error('not found')
     deleteAuthUser(userId)
+    return null
+  },
+
+  // Pending deals and suggested places, oldest first; a place before its deals.
+  admin_list_suggestions: () => {
+    requireAdmin()
+    const deals = venueDeals()
+      .filter((d) => d.status === 'pending')
+      .flatMap((d) => {
+        const venue = venues().find((v) => v.id === d.venue_id)
+        return venue ? [suggestionRow('deal', venue, d)] : []
+      })
+    const places = venues()
+      .filter((v) => v.status === 'pending')
+      .map((v) => suggestionRow('venue', v, null))
+    return [...places, ...deals].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+  },
+
+  admin_review_deal: ({ p_id, p_approve, p_note }) => {
+    requireAdmin()
+    const deal = venueDeals().find((d) => d.id === p_id)
+    if (!deal) throw new Error('not found')
+    const approve = Boolean(p_approve)
+    if (approve && venues().find((v) => v.id === deal.venue_id)?.status !== 'approved') throw new Error('venue not approved')
+    const next = {
+      status: approve ? 'approved' : 'rejected', reviewed_by: currentUserId(), reviewed_at: new Date().toISOString(),
+      review_note: str(p_note)?.trim() || null,
+    }
+    checkDeal({ ...deal, ...next })
+    Object.assign(deal, next)
+    return null
+  },
+
+  admin_review_venue: ({ p_id, p_approve, p_note }) => {
+    requireAdmin()
+    const venue = venues().find((v) => v.id === Number(p_id))
+    if (!venue) throw new Error('not found')
+    const note = str(p_note)?.trim() || null
+    const next = p_approve
+      ? { household_id: null, status: 'approved', review_note: note }
+      : { status: 'rejected', review_note: note }
+    checkVenue({ ...venue, ...next })
+    Object.assign(venue, next, { updated_at: new Date().toISOString() })
+    return null
+  },
+
+  // A suggested place that repeats an approved one: its deals move over, and it goes.
+  admin_merge_venue: ({ p_from, p_into }) => {
+    requireAdmin()
+    const from = venues().find((v) => v.id === Number(p_from) && v.status !== 'approved')
+    const into = venues().find((v) => v.id === Number(p_into))
+    if (!from || !into) throw new Error('not found')
+    if (into.status !== 'approved') throw new Error('venue not approved')
+    for (const d of venueDeals()) if (d.venue_id === from.id) d.venue_id = into.id
+    db.venues = venues().filter((v) => v !== from)
     return null
   },
 }

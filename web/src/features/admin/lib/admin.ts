@@ -24,6 +24,7 @@ const ERRORS: [string, string][] = [
   ['cannot delete your own account', 'אי אפשר למחוק את החשבון שלך.'],
   ['cannot delete an admin', 'אי אפשר למחוק חשבון עם הרשאת ניהול.'],
   ['placeholder has history', 'יש רישומים על השם הזה. אפשר למחוק את כל הבית.'],
+  ['venue not approved', 'המקום עוד לא אושר. קודם מאשרים אותו.'],
   ['not found', 'לא נמצא, אולי כבר נמחק.'],
 ]
 

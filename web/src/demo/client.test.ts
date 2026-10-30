@@ -161,7 +161,9 @@ describe('demo notifications', () => {
     expect((await demoClient.from('notification_prefs').upsert({ user_id: MICHAEL, bills: true })).error).toBeNull()
     expect((await demoClient.from('notification_prefs').upsert({ user_id: MICHAEL, weekly: true })).error).toBeNull()
     expect(await prefs()).toEqual([
-      expect.objectContaining({ user_id: MICHAEL, bills: true, chores: false, partner: false, weekly: true, admin: false }),
+      expect.objectContaining({
+        user_id: MICHAEL, bills: true, chores: false, partner: false, weekly: true, going_out: false, admin: false,
+      }),
     ])
     expect(db.notification_prefs).toHaveLength(1)
   })

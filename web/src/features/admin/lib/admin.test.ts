@@ -31,6 +31,7 @@ describe('adminErrorMessage', () => {
     expect(adminErrorMessage('cannot remove your own email')).toBe('אי אפשר להסיר את הכתובת שלך.')
     expect(adminErrorMessage('cannot remove yourself')).toBe('אי אפשר להסיר את עצמך.')
     expect(adminErrorMessage('placeholder has history')).toMatch('רישומים')
+    expect(adminErrorMessage('venue not approved')).toBe('המקום עוד לא אושר. קודם מאשרים אותו.')
     expect(adminErrorMessage('not found')).toBe('לא נמצא, אולי כבר נמחק.')
   })
 
