@@ -861,6 +861,7 @@ insert into public.venue_deals (venue_id, household_id, created_by, title, kind)
 insert into public.venue_deals (venue_id, household_id, created_by, title, kind, status)
 values (:del_venue, :'hid', '00000000-0000-0000-0000-00000000000a', 'בירה בחצי מחיר', 'happy_hour', 'approved')
 returning id as del_deal \gset
+insert into public.venue_favorites (household_id, venue_id) values (:'hid', :del_venue);
 select set_config('test.del_deal', :'del_deal', false), set_config('test.del_own_venue', :'del_own_venue', false);
 
 create or replace function pg_temp.household_rows(hid uuid)
@@ -2237,6 +2238,86 @@ begin
     'shown place still marked hidden';
   assert (select status = 'approved' and suggested_household_id is null
           from public.venues where id = current_setting('test.gv_tal')::bigint), 'approved place not kept without its household';
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Favorites and keva card discounts (20261102000100_venue_favorites.sql).
+-- עדי stars places for her household; מאיה, in no household, sees none and
+-- can't star for it.
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000c1');
+insert into public.venues (name, kind, source, status, household_id)
+values ('בר הכפילות', 'bar', 'community', 'pending', :'ghid') returning id as gv_twin \gset
+insert into public.venue_favorites (household_id, venue_id) values (:'ghid', :gv_bar), (:'ghid', :gv_twin);
+insert into public.venue_deals (venue_id, household_id, title, kind)
+values (:gv_bar, :'ghid', '10% הנחה בכרטיס חבר', 'member_card');
+select set_config('test.gv_twin', :'gv_twin', false);
+do $$
+begin
+  assert (select count(*) from public.venue_favorites) = 2, 'own favorites not visible';
+  begin
+    insert into public.venue_deals (venue_id, household_id, title, kind)
+    values (current_setting('test.gv_twin')::bigint, current_setting('test.ghid')::uuid, 'סוג לא קיים', 'coupon');
+    raise exception 'an unknown deal kind was saved';
+  exception when check_violation then null;
+  end;
+end;
+$$;
+select public.test_login('00000000-0000-0000-0000-0000000000c4');
+do $$
+begin
+  assert not exists (select 1 from public.venue_favorites), 'another household''s favorites visible';
+  begin
+    insert into public.venue_favorites (household_id, venue_id)
+    values (current_setting('test.ghid')::uuid, current_setting('test.gv_twin')::bigint);
+    raise exception 'starred for another household';
+  exception when insufficient_privilege then null;
+  end;
+  -- Merging the twin into the bar keeps one star, not two.
+  perform public.admin_merge_venue(current_setting('test.gv_twin')::bigint, current_setting('test.gv_bar')::bigint);
+end;
+$$;
+reset role;
+do $$
+begin
+  assert (select count(*) from public.venue_favorites
+          where household_id = current_setting('test.ghid')::uuid
+            and venue_id = current_setting('test.gv_bar')::bigint) = 1, 'merged star lost or duplicated';
+  assert not exists (select 1 from public.venues where id = current_setting('test.gv_twin')::bigint), 'twin not merged';
+  assert (select kind from public.venue_deals where title = '10% הנחה בכרטיס חבר') = 'member_card',
+    'member_card deal not saved';
+end;
+$$;
+-- Unstarring, by the household.
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000c1');
+delete from public.venue_favorites where venue_id = :gv_bar;
+reset role;
+do $$
+begin
+  assert not exists (select 1 from public.venue_favorites where household_id = current_setting('test.ghid')::uuid),
+    'star not removed';
+end;
+$$;
+set role anon;
+do $$
+begin
+  perform 1 from public.venue_favorites;
+  raise exception 'anon reads favorites';
+exception when insufficient_privilege then null;
+end;
+$$;
+reset role;
+-- A star goes with its place.
+insert into public.venues (osm_ref, name, kind, source) values ('node/900002', 'בר שנסגר', 'bar', 'osm')
+returning id as gv_gone \gset
+insert into public.venue_favorites (household_id, venue_id) values (:'ghid', :gv_gone);
+delete from public.venues where id = :gv_gone;
+do $$
+begin
+  assert not exists (select 1 from public.venue_favorites where household_id = current_setting('test.ghid')::uuid),
+    'star kept after its place was deleted';
 end;
 $$;
 

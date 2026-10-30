@@ -9,6 +9,7 @@ import { VenueForm } from '@/components/going-out/VenueForm'
 import { useIsAdmin } from '@/features/admin/hooks'
 import { FilterChips } from './components/FilterChips'
 import { LocationBar } from './components/LocationBar'
+import { SearchBar } from './components/SearchBar'
 import { VenueCard } from './components/VenueCard'
 import { VenueSheet } from './components/VenueSheet'
 import {
@@ -17,12 +18,14 @@ import {
   useAdminUpdateDeal,
   useAdminUpdateVenue,
   useDeals,
+  useFavorites,
   useLocation,
   useNow,
   useVenues,
 } from './hooks'
 import { draftFromDeal, emptyDraft, type DealDraft, type DealFields } from './lib/draft'
-import { buildSections, NO_FILTERS, type Filters } from './lib/rank'
+import { buildSections, NO_FILTERS, type Filters, type VenueItem } from './lib/rank'
+import { searchItems } from './lib/search'
 import { emptyVenueDraft, venueDraftFrom, type VenueFields } from './lib/venueDraft'
 
 const PAGE = 20
@@ -41,6 +44,7 @@ type Panel =
 export function GoingOutPage() {
   const venues = useVenues()
   const deals = useDeals()
+  const favorites = useFavorites().ids
   const location = useLocation()
   const now = useNow()
   const isAdmin = useIsAdmin().data === true
@@ -51,19 +55,26 @@ export function GoingOutPage() {
   const [filters, setFilters] = useState<Filters>(NO_FILTERS)
   const [shown, setShown] = useState(PAGE)
   const [panel, setPanel] = useState<Panel | null>(null)
+  /** null: the search bar is closed. */
+  const [query, setQuery] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
   const venueList = useMemo(() => venues.data ?? [], [venues.data])
   const dealList = useMemo(() => deals.data ?? [], [deals.data])
   const sections = useMemo(
-    () => buildSections(venueList, dealList, location.origin, now, filters),
-    [venueList, dealList, location.origin, now, filters],
+    () => buildSections(venueList, dealList, location.origin, now, filters, favorites),
+    [venueList, dealList, location.origin, now, filters, favorites],
   )
   // Every place, whatever the filters: a sheet may open for one they hide.
   const items = useMemo(
-    () => new Map(buildSections(venueList, dealList, location.origin, now).all.map((i) => [i.venue.id, i])),
-    [venueList, dealList, location.origin, now],
+    () =>
+      new Map(
+        buildSections(venueList, dealList, location.origin, now, NO_FILTERS, favorites).all.map((i) => [i.venue.id, i]),
+      ),
+    [venueList, dealList, location.origin, now, favorites],
   )
+  const searching = (query ?? '').trim() !== ''
+  const results = useMemo(() => (searching ? searchItems(sections.all, query!) : []), [searching, sections.all, query])
 
   useEffect(() => {
     if (!notice) return
@@ -87,7 +98,10 @@ export function GoingOutPage() {
   )
   const newDeal = (venueId: number | null = null) =>
     setPanel({ type: 'deal', draft: emptyDraft(venueId), back: venueId ?? undefined })
-  const newVenue = () => setPanel({ type: 'new-venue', name: '', draft: null })
+  const newVenue = (name = '') => setPanel({ type: 'new-venue', name, draft: null })
+  const card = (item: VenueItem) => (
+    <VenueCard key={item.venue.id} item={item} now={now} onOpen={() => setPanel({ type: 'venue', id: item.venue.id })} />
+  )
 
   const submitDeal = (fields: DealFields) => {
     if (panel?.type !== 'deal') return
@@ -120,87 +134,113 @@ export function GoingOutPage() {
       {venueList.length === 0 ? (
         <EmptyState icon="🗺️" title="עוד לא נטענו מקומות">
           <p>הם נטענים פעם בשבוע מ־OpenStreetMap.</p>
-          <Button variant="secondary" size="sm" className="mt-3" onClick={newVenue}>
+          <Button variant="secondary" size="sm" className="mt-3" onClick={() => newVenue()}>
             <Plus size={16} />
             הוספת מקום
           </Button>
         </EmptyState>
       ) : (
         <>
+          {query != null && <SearchBar value={query} onChange={setQuery} onClose={() => setQuery(null)} />}
           <FilterChips
             value={filters}
             onChange={(f) => {
               setFilters(f)
               setShown(PAGE)
             }}
+            onSearch={query == null ? () => setQuery('') : undefined}
           />
 
-          <Section title="עכשיו">
-            {sections.now.length === 0 ? (
-              <div className="space-y-2 rounded-2xl bg-surface-2 p-4 text-sm text-ink-2">
-                <p>אין כרגע דילים פעילים בקרבת מקום. אפשר להוסיף דיל שמכירים, והוא יופיע מיד אצלכם.</p>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => newDeal()}>
-                    <Plus size={16} />
-                    הוספת דיל
-                  </Button>
-                  <Button variant="secondary" size="sm" onClick={newVenue}>
+          {searching ? (
+            <Section
+              title={
+                <>
+                  תוצאות (<span className="num">{results.length}</span>)
+                </>
+              }
+            >
+              {results.length === 0 ? (
+                <div className="space-y-2 rounded-2xl bg-surface-2 p-4 text-sm text-ink-2">
+                  <p>
+                    לא נמצא מקום כזה
+                    {(filters.kind !== 'all' || filters.dealsOnly || filters.memberCard) && ' בסינון הנוכחי'}. מכירים
+                    אותו? אפשר להוסיף אותו.
+                  </p>
+                  <Button variant="secondary" size="sm" onClick={() => newVenue(query!.trim())}>
                     <Plus size={16} />
                     הוספת מקום
                   </Button>
                 </div>
-              </div>
-            ) : (
-              sections.now.map((item) => (
-                <VenueCard key={item.venue.id} item={item} now={now} onOpen={() => setPanel({ type: 'venue', id: item.venue.id })} />
-              ))
-            )}
-          </Section>
+              ) : (
+                results.map(card)
+              )}
+            </Section>
+          ) : (
+            <>
+              {sections.favorites.length > 0 && <Section title="מועדפים">{sections.favorites.map(card)}</Section>}
 
-          <Section title="בהמשך הערב">
-            {sections.later.length === 0 ? (
-              <p className="px-1 text-sm text-ink-3">אין דילים שמתחילים בשעות הקרובות.</p>
-            ) : (
-              sections.later.map((item) => (
-                <VenueCard key={item.venue.id} item={item} now={now} onOpen={() => setPanel({ type: 'venue', id: item.venue.id })} />
-              ))
-            )}
-          </Section>
-
-          <Section
-            title={
-              <>
-                כל המקומות (<span className="num">{sections.all.length}</span>)
-              </>
-            }
-            action={
-              <Button variant="ghost" size="sm" onClick={newVenue}>
-                <Plus size={16} />
-                הוספת מקום
-              </Button>
-            }
-          >
-            {sections.all.length === 0 ? (
-              <div className="space-y-2 rounded-2xl bg-surface-2 p-4 text-sm text-ink-2">
-                <p>אין מקומות שמתאימים לסינון. מכירים מקום שחסר כאן? אפשר להוסיף אותו.</p>
-                <Button variant="secondary" size="sm" onClick={newVenue}>
-                  <Plus size={16} />
-                  הוספת מקום
-                </Button>
-              </div>
-            ) : (
-              <>
-                {sections.all.slice(0, shown).map((item) => (
-                  <VenueCard key={item.venue.id} item={item} now={now} onOpen={() => setPanel({ type: 'venue', id: item.venue.id })} />
-                ))}
-                {sections.all.length > shown && (
-                  <Button variant="secondary" className="w-full" onClick={() => setShown((n) => n + PAGE)}>
-                    הצגת עוד
-                  </Button>
+              <Section title="עכשיו">
+                {sections.now.length === 0 ? (
+                  <div className="space-y-2 rounded-2xl bg-surface-2 p-4 text-sm text-ink-2">
+                    <p>אין כרגע דילים פעילים בקרבת מקום. אפשר להוסיף דיל שמכירים, והוא יופיע מיד אצלכם.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="secondary" size="sm" onClick={() => newDeal()}>
+                        <Plus size={16} />
+                        הוספת דיל
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={() => newVenue()}>
+                        <Plus size={16} />
+                        הוספת מקום
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  sections.now.map(card)
                 )}
-              </>
-            )}
-          </Section>
+              </Section>
+
+              <Section title="בהמשך הערב">
+                {sections.later.length === 0 ? (
+                  <p className="px-1 text-sm text-ink-3">אין דילים שמתחילים בשעות הקרובות.</p>
+                ) : (
+                  sections.later.map(card)
+                )}
+              </Section>
+
+              <Section
+                title={
+                  <>
+                    כל המקומות (<span className="num">{sections.all.length}</span>)
+                  </>
+                }
+                action={
+                  <Button variant="ghost" size="sm" onClick={() => newVenue()}>
+                    <Plus size={16} />
+                    הוספת מקום
+                  </Button>
+                }
+              >
+                {sections.all.length === 0 ? (
+                  <div className="space-y-2 rounded-2xl bg-surface-2 p-4 text-sm text-ink-2">
+                    <p>אין מקומות שמתאימים לסינון. מכירים מקום שחסר כאן? אפשר להוסיף אותו.</p>
+                    <Button variant="secondary" size="sm" onClick={() => newVenue()}>
+                      <Plus size={16} />
+                      הוספת מקום
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    {sections.all.slice(0, shown).map(card)}
+                    {sections.all.length > shown && (
+                      <Button variant="secondary" className="w-full" onClick={() => setShown((n) => n + PAGE)}>
+                        הצגת עוד
+                      </Button>
+                    )}
+                  </>
+                )}
+              </Section>
+            </>
+          )}
 
           <p className="text-center text-xs text-ink-3">
             נתוני המקומות: ©{' '}

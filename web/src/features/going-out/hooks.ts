@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Venue, VenueDeal } from '@/lib/db-types'
 import { useRealtimeInvalidate } from '@/lib/realtime'
@@ -6,6 +6,7 @@ import { useHousehold } from '@/features/household/HouseholdProvider'
 import { adminKeys } from '@/features/admin/hooks'
 import {
   addDeal,
+  addFavorite,
   addVenue,
   adminDeleteDeal,
   adminHideVenue,
@@ -15,8 +16,10 @@ import {
   deleteDeal,
   deleteVenue,
   fetchDeals,
+  fetchFavorites,
   fetchMySuggestions,
   fetchVenues,
+  removeFavorite,
   updateDeal,
   updateVenue,
 } from './api'
@@ -32,6 +35,7 @@ export const goingOutKeys = {
   deals: (householdId: string) => ['venue-deals', householdId] as const,
   /** "ההצעות שלי". */
   mine: (householdId: string) => ['my-suggestions', householdId] as const,
+  favorites: (householdId: string) => ['venue-favorites', householdId] as const,
 }
 
 /**
@@ -62,6 +66,44 @@ export function useDeals() {
     queryKey: goingOutKeys.deals(household.id),
     queryFn: fetchDeals,
     staleTime: 60_000,
+  })
+}
+
+const NO_FAVORITES = new Set<number>()
+
+/** The household's starred places; the partner's stars arrive live. */
+export function useFavorites() {
+  const { household } = useHousehold()
+  useRealtimeInvalidate('venue_favorites', household.id, [goingOutKeys.favorites(household.id)])
+  const query = useQuery({
+    queryKey: goingOutKeys.favorites(household.id),
+    queryFn: () => fetchFavorites(household.id),
+    staleTime: 10 * 60_000,
+  })
+  const ids = useMemo(() => (query.data ? new Set(query.data) : NO_FAVORITES), [query.data])
+  return { ...query, ids }
+}
+
+/** Stars or unstars a place, at once on screen; rolls back on error. */
+export function useToggleFavorite() {
+  const { household } = useHousehold()
+  const queryClient = useQueryClient()
+  const key = goingOutKeys.favorites(household.id)
+  return useMutation({
+    mutationFn: ({ venueId, favorite }: { venueId: number; favorite: boolean }) =>
+      favorite ? addFavorite(household.id, venueId) : removeFavorite(household.id, venueId),
+    onMutate: async ({ venueId, favorite }) => {
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<number[]>(key)
+      queryClient.setQueryData<number[]>(key, (ids = []) =>
+        favorite ? [...ids.filter((id) => id !== venueId), venueId] : ids.filter((id) => id !== venueId),
+      )
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(key, context.previous)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: key }),
   })
 }
 

@@ -703,6 +703,14 @@ export const RPCS: Record<string, (args: Args) => unknown> = {
     if (!from || !into) throw new Error('not found')
     if (into.status !== 'approved') throw new Error('venue not approved')
     for (const d of venueDeals()) if (d.venue_id === from.id) d.venue_id = into.id
+    // Its stars move too; a household that starred both keeps one.
+    const starred = new Set(db.venue_favorites.filter((f) => f.venue_id === into.id).map((f) => f.household_id))
+    db.venue_favorites = db.venue_favorites.flatMap((f) => {
+      if (f.venue_id !== from.id) return [f]
+      if (starred.has(f.household_id)) return []
+      starred.add(f.household_id)
+      return [{ ...f, venue_id: into.id }]
+    })
     db.venues = venues().filter((v) => v !== from)
     return null
   },

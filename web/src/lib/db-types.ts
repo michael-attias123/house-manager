@@ -91,7 +91,8 @@ export interface ItemCategory {
 // "לאן יוצאים" (20261101000100_going_out.sql): places from OpenStreetMap or
 // added by a household, and deals the households suggest.
 export type VenueKind = 'bar' | 'pub' | 'restaurant' | 'cafe' | 'nightclub' | 'other'
-export type DealKind = 'happy_hour' | 'special_day' | 'event'
+/** member_card: a discount for keva club card ("כרטיס חבר") holders; standing, not a happening. */
+export type DealKind = 'happy_hour' | 'special_day' | 'event' | 'member_card'
 export type SuggestionStatus = 'approved' | 'pending' | 'rejected'
 
 export interface Venue {
@@ -145,6 +146,13 @@ export interface VenueDeal {
   reviewed_at: string | null
   review_note: string | null
   last_confirmed_at: string
+  created_at: string
+}
+
+/** A place the household starred; shown on top of the going-out list. */
+export interface VenueFavorite {
+  household_id: string
+  venue_id: number
   created_at: string
 }
 

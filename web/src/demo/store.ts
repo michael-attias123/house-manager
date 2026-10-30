@@ -109,7 +109,7 @@ const nowIso = () => new Date().toISOString()
 export function withDefaults(table: string, row: Row): Row {
   const today = todayISO()
   const base: Row = {}
-  if (!['household_members', 'expense_shares', 'prices', 'product_links', 'item_categories', 'notification_prefs'].includes(table)) base.id = uuid()
+  if (!['household_members', 'expense_shares', 'prices', 'product_links', 'item_categories', 'notification_prefs', 'venue_favorites'].includes(table)) base.id = uuid()
   if (['list_items', 'expenses', 'bills', 'chores'].includes(table)) base.updated_at = nowIso()
   base.created_at = nowIso()
   switch (table) {
@@ -167,6 +167,7 @@ export const PRIMARY_KEYS: Record<string, string[]> = {
   product_links: ['household_id', 'normalized_name'],
   item_categories: ['household_id', 'normalized_name'],
   notification_prefs: ['user_id'],
+  venue_favorites: ['household_id', 'venue_id'],
 }
 
 export function primaryKey(table: string): string[] {

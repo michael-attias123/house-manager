@@ -77,6 +77,12 @@ const POLICIES: Record<string, Policy> = {
       db.venues.some((v) => v.id === r.venue_id && POLICIES.venues.select(v, mine)),
     write: (r, mine) => mine.has(r.household_id) && r.status !== 'approved',
   },
+  // The household's stars, for its members only.
+  venue_favorites: {
+    select: (r, mine) => mine.has(r.household_id),
+    insert: (r, mine) => mine.has(r.household_id),
+    write: (r, mine) => mine.has(r.household_id),
+  },
 }
 
 // Changed only inside the admin_* RPCs and the ingest (a before-update

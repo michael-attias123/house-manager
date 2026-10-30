@@ -77,6 +77,8 @@ export function createSeed(now: Date = new Date()): Db {
     // "לאן יוצאים" (20261101000100_going_out.sql), filled in below.
     venues: [],
     venue_deals: [],
+    // Starred by the household (20261102000100_venue_favorites.sql).
+    venue_favorites: [],
     // Stand-ins for auth.users and the admin tables (20261021000300_admin.sql).
     auth_users: [
       { id: MICHAEL, email: 'michael@demo', raw_user_meta_data: { full_name: 'מיכאל' }, created_at: at(daysAgo(200)), last_sign_in_at: at(today, '08:05') },
@@ -404,7 +406,19 @@ export function createSeed(now: Date = new Date()): Db {
       household_id: HOUSEHOLD, created_by: YAHALI, status: 'rejected', reviewed_at: at(daysAgo(3)),
       review_note: 'לא מצאנו את הדיל בעמוד של המקום', last_confirmed_at: at(daysAgo(6)), created_at: at(daysAgo(6)),
     }),
+    // Keva card discounts: standing, so on the places but never in "עכשיו".
+    venueDeal(5, '10% הנחה בכרטיס חבר', 'member_card', [], null, { note: 'לא כולל אלכוהול' }),
+    venueDeal(4, '15% על הארוחה בכרטיס חבר', 'member_card', [0, 1, 2, 3, 4], null),
+    // יהלי's, waiting for approval.
+    venueDeal(7, 'קפה ומאפה ב־20% בכרטיס חבר', 'member_card', [], null, {
+      household_id: HOUSEHOLD, created_by: YAHALI, status: 'pending', reviewed_by: null, reviewed_at: null,
+      last_confirmed_at: at(daysAgo(2), '10:00'), created_at: at(daysAgo(2), '10:00'),
+    }),
   )
+  // The household's stars: shown first, for both of them.
+  for (const venueId of [1, 8]) {
+    db.venue_favorites.push({ household_id: HOUSEHOLD, venue_id: venueId, created_at: at(daysAgo(10)) })
+  }
 
   // דירת ניסיון: two items on טל's list, nothing else.
   for (const [name, category] of [['חלב', 'dairy'], ['לחם', 'bakery']]) {
