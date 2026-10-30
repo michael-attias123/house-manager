@@ -2322,6 +2322,64 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- admin_add_deals (20261105000100_admin_add_deals.sql): an admin's import of
+-- deals goes in approved, all or nothing, without notifications; nobody else
+-- can call it.
+select set_config('test.outbox_before', (select count(*) from public.notification_outbox)::text, false);
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000c1');
+do $$
+begin
+  perform public.admin_add_deals('[]');
+  raise exception 'a member added deals for everyone';
+exception when insufficient_privilege then null;
+end;
+$$;
+select public.test_login('00000000-0000-0000-0000-0000000000c4');
+do $$
+declare
+  bar bigint := current_setting('test.gv_bar')::bigint;
+  n int;
+begin
+  n := public.admin_add_deals(jsonb_build_array(
+    jsonb_build_object('venue_id', bar, 'title', ' 1+1 על קוקטיילים ', 'kind', 'happy_hour', 'weekdays', jsonb_build_array(4, 2),
+                       'starts_at', '19:00', 'ends_at', '21:00', 'valid_from', null, 'valid_until', null, 'note', ' '),
+    jsonb_build_object('venue_id', bar, 'title', 'ערב סטנדאפ', 'kind', 'event', 'weekdays', jsonb_build_array(),
+                       'starts_at', '21:30', 'ends_at', '23:00', 'valid_from', '2026-12-10', 'valid_until', '2026-12-10',
+                       'note', 'כניסה 40 ש"ח')));
+  assert n = 2, format('%s deals added', n);
+  assert (select status = 'approved' and household_id is null and weekdays = '{2,4}' and note is null
+            and reviewed_by = '00000000-0000-0000-0000-0000000000c4' and created_by = reviewed_by
+          from public.venue_deals where title = '1+1 על קוקטיילים'), 'the deal is not as given, approved';
+  -- One place not approved: nothing goes in.
+  begin
+    perform public.admin_add_deals(jsonb_build_array(
+      jsonb_build_object('venue_id', bar, 'title', 'לא ייכנס', 'kind', 'happy_hour', 'weekdays', jsonb_build_array()),
+      jsonb_build_object('venue_id', current_setting('test.gv_noa')::bigint, 'title', 'גם לא', 'kind', 'happy_hour',
+                         'weekdays', jsonb_build_array())));
+    raise exception 'a deal on a place that is not approved';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'venue not approved' then raise; end if;
+  end;
+  assert not exists (select 1 from public.venue_deals where title = 'לא ייכנס'), 'half an import went in';
+  begin
+    perform public.admin_add_deals('{"deals": []}');
+    raise exception 'an object was taken for a list';
+  exception when invalid_parameter_value then null;
+  end;
+end;
+$$;
+reset role;
+do $$
+begin
+  assert (select count(*) from public.notification_outbox) = current_setting('test.outbox_before')::bigint,
+    'the import sent notifications';
+  assert not has_function_privilege('anon', 'public.admin_add_deals(jsonb)', 'execute')
+     and has_function_privilege('authenticated', 'public.admin_add_deals(jsonb)', 'execute'), 'wrong grants';
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- "חבר טעמים" places (20261103000100_hever_teamim.sql): every one has a keva
 -- card deal everyone sees; running it again changes nothing, and a place
 -- already in the catalog gets the deal instead of a twin.

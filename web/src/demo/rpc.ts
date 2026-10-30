@@ -755,6 +755,28 @@ export const RPCS: Record<string, (args: Args) => unknown> = {
   },
 
   // Out of every list (and back); hidden_by_admin keeps the ingest from showing it again.
+  // An admin's import of deals: approved as they go in, all or nothing.
+  admin_add_deals: ({ p_deals }) => {
+    requireAdmin()
+    if (!Array.isArray(p_deals)) throw new Error('deals must be a list')
+    const deals = p_deals as Row[]
+    const approved = (id: unknown) => venues().some((v) => v.id === Number(id) && v.status === 'approved' && !v.hidden)
+    if (!deals.every((d) => approved(d.venue_id))) throw new Error('venue not approved')
+    const now = new Date().toISOString()
+    for (const d of deals) {
+      db.venue_deals.push(
+        withDefaults('venue_deals', {
+          venue_id: Number(d.venue_id), household_id: null, created_by: currentUserId(), title: String(d.title).trim(),
+          kind: d.kind, weekdays: [...(d.weekdays ?? [])].sort((a: number, b: number) => a - b),
+          starts_at: d.starts_at ?? null, ends_at: d.ends_at ?? null, valid_from: d.valid_from ?? null,
+          valid_until: d.valid_until ?? null, note: String(d.note ?? '').trim() || null,
+          status: 'approved', reviewed_by: currentUserId(), reviewed_at: now,
+        }),
+      )
+    }
+    return deals.length
+  },
+
   admin_hide_venue: ({ p_id, p_hidden }) => {
     requireAdmin()
     const venue = venues().find((v) => v.id === Number(p_id))

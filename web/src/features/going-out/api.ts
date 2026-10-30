@@ -47,6 +47,16 @@ export async function addDeal(deal: NewDeal): Promise<void> {
   check(await supabase.from('venue_deals').insert({ ...deal, status: 'pending' }))
 }
 
+/** Several suggestions at once (the AI import): pending, like addDeal. */
+export async function addDeals(deals: NewDeal[]): Promise<void> {
+  check(await supabase.from('venue_deals').insert(deals.map((d) => ({ ...d, status: 'pending' }))))
+}
+
+/** An admin's import: approved for everyone at once, all or nothing (admin_add_deals). */
+export async function adminAddDeals(deals: DealFields[]): Promise<number> {
+  return check(await supabase.rpc('admin_add_deals', { p_deals: deals })) as number
+}
+
 /**
  * Only the household's own deals that aren't approved can change (RLS). A
  * rejected one goes back to pending on the server, its review note kept.
