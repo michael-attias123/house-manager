@@ -101,6 +101,22 @@ export function withDefaults(table: string, row: Row): Row {
     case 'chore_completions':
       Object.assign(base, { done_by: currentUserId(), done_on: today })
       break
+    case 'venues':
+      // bigint identity.
+      Object.assign(base, {
+        id: Math.max(0, ...db.venues.map((v) => Number(v.id))) + 1,
+        osm_ref: null, lat: null, lng: null, address: null, opening_hours: null, website: null, phone: null,
+        instagram: null, cuisine: null, source: 'community', household_id: null, created_by: currentUserId(),
+        status: 'approved', hidden: false, review_note: null, updated_at: nowIso(),
+      })
+      break
+    case 'venue_deals':
+      Object.assign(base, {
+        household_id: null, created_by: currentUserId(), weekdays: [], starts_at: null, ends_at: null,
+        valid_from: null, valid_until: null, note: null, status: 'pending', reviewed_by: null, reviewed_at: null,
+        review_note: null, last_confirmed_at: nowIso(),
+      })
+      break
     case 'product_links':
     case 'item_categories':
       base.updated_at = nowIso()

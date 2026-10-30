@@ -88,6 +88,59 @@ export interface ItemCategory {
   updated_at: string
 }
 
+// "לאן יוצאים" (20261101000100_going_out.sql): places from OpenStreetMap or
+// added by a household, and deals the households suggest.
+export type VenueKind = 'bar' | 'pub' | 'restaurant' | 'cafe' | 'nightclub' | 'other'
+export type DealKind = 'happy_hour' | 'special_day' | 'event'
+export type SuggestionStatus = 'approved' | 'pending' | 'rejected'
+
+export interface Venue {
+  id: number
+  osm_ref: string | null
+  name: string
+  kind: VenueKind
+  lat: number | null
+  lng: number | null
+  address: string | null
+  opening_hours: string | null
+  website: string | null
+  phone: string | null
+  instagram: string | null
+  cuisine: string | null
+  source: 'osm' | 'community'
+  /** null = in the shared catalog; set = a household's suggestion, not approved yet. */
+  household_id: string | null
+  created_by: string | null
+  status: SuggestionStatus
+  hidden: boolean
+  review_note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface VenueDeal {
+  id: string
+  venue_id: number
+  household_id: string | null
+  created_by: string | null
+  title: string
+  kind: DealKind
+  /** 0 = Sunday … 6 = Saturday; empty = every day. */
+  weekdays: number[]
+  /** 'HH:MM:SS' as PostgREST returns time; both null = whenever the place is open. */
+  starts_at: string | null
+  ends_at: string | null
+  valid_from: string | null
+  valid_until: string | null
+  note: string | null
+  status: SuggestionStatus
+  reviewed_by: string | null
+  reviewed_at: string | null
+  review_note: string | null
+  last_confirmed_at: string
+  created_at: string
+}
+
 export type SplitType = 'equal' | 'percent' | 'exact' | 'full' | 'default'
 
 export interface Expense {

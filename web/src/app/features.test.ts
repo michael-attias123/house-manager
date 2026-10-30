@@ -13,9 +13,13 @@ describe('feature registry', () => {
   })
 
   it('lists the rest on the "more" page and orders widgets', () => {
-    expect(moreFeatures().map((f) => f.id)).toEqual(['prices', 'insights', 'household'])
+    expect(moreFeatures().map((f) => f.id)).toEqual(['prices', 'going-out', 'insights', 'household'])
     expect(dashboardWidgets()[0].id).toBe('insights')
     expect(featureForPath('/bills')?.id).toBe('bills')
+    // The going-out card comes after the shopping list and the bills.
+    const order = dashboardWidgets().map((w) => w.id)
+    expect(order.indexOf('going-out')).toBeGreaterThan(order.indexOf('shopping'))
+    expect(order.indexOf('going-out')).toBeGreaterThan(order.indexOf('bills'))
   })
 
   it('keeps the admin screen out of the navigation (reached from Settings)', () => {
