@@ -49,7 +49,7 @@ def overpass(query: str) -> list[dict]:
         except Exception as e:  # noqa: BLE001 - print and retry
             print(f"{url}: {e}", file=sys.stderr)
             time.sleep(5 * (attempt + 1))
-    raise SystemExit("Overpass did not answer")
+    raise RuntimeError("Overpass did not answer")
 
 
 def report(title: str, els: list[dict]) -> None:
@@ -71,5 +71,10 @@ def report(title: str, els: list[dict]) -> None:
 
 area = overpass(QUERY_AREA)
 report("Be'er Sheva administrative area", area)
-bbox = overpass(QUERY_BBOX)
-report("Bounding box 31.20,34.73 – 31.30,34.86", bbox)
+# Only a cross-check of the area query: an Overpass outage here is not a failed probe.
+try:
+    bbox = overpass(QUERY_BBOX)
+except RuntimeError as e:
+    print(f"\nBounding box skipped: {e}")
+else:
+    report("Bounding box 31.20,34.73 – 31.30,34.86", bbox)
