@@ -6,7 +6,9 @@ Run weekly by .github/workflows/venues.yml. Asks Overpass for bars, pubs,
 restaurants and cafés inside the city's administrative boundary, upserts them
 by osm_ref in one transaction, and hides OSM places that are no longer in the
 answer (their deals stay linked). An answer with fewer than half of the places
-already loaded is taken as partial and changes nothing.
+already loaded is taken as partial and changes nothing. A place an admin edited
+(admin_edited_at) keeps the admin's values; one an admin hid (hidden_by_admin)
+stays hidden.
 
 Needs only psycopg (not the price scraper or lxml).
 """
@@ -232,14 +234,19 @@ def sync_venues(conn, venues: list[Venue]) -> dict:
 
         cols = ", ".join(COLUMNS)
         data_cols = [c for c in COLUMNS if c != "osm_ref"]
+        # An admin's edit wins over OSM (admin_update_venue), and a place an
+        # admin hid is not shown again; both are still hidden when gone from OSM.
+        edited = "venues.admin_edited_at is not null"
         cur.execute(
             f"""
             insert into public.venues ({cols}, source, status, hidden)
             select {cols}, 'osm', 'approved', false from stage_venues
             on conflict (osm_ref) do update set
-              {", ".join(f"{c} = excluded.{c}" for c in data_cols)}, hidden = false
-            where ({", ".join(f"venues.{c}" for c in data_cols)}, venues.hidden)
-              is distinct from ({", ".join(f"excluded.{c}" for c in data_cols)}, false)
+              {", ".join(f"{c} = case when {edited} then venues.{c} else excluded.{c} end" for c in data_cols)},
+              hidden = venues.hidden_by_admin
+            where (venues.hidden and not venues.hidden_by_admin)
+              or (not ({edited}) and ({", ".join(f"venues.{c}" for c in data_cols)})
+                  is distinct from ({", ".join(f"excluded.{c}" for c in data_cols)}))
             """
         )
         stats["written"] = cur.rowcount
