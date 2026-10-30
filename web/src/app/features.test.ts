@@ -8,12 +8,19 @@ describe('feature registry', () => {
 
   it('groups money features into one bottom-nav slot with tabs', () => {
     const nav = primaryNav()
-    expect(nav.map((n) => n.key)).toEqual(['shopping', 'money', 'chores'])
+    expect(nav.map((n) => n.key)).toEqual(['shopping', 'money', 'chores', 'going-out'])
     expect(nav[1].tabs?.map((t) => t.to)).toEqual(['/expenses', '/bills'])
   })
 
+  it('puts going out in the bar under its short label', () => {
+    const nav = primaryNav()
+    expect(nav.map((n) => n.key)).toContain('going-out')
+    expect(nav.find((n) => n.key === 'going-out')?.title).toBe('יוצאים')
+    expect(FEATURES.find((f) => f.id === 'going-out')?.title).toBe('לאן יוצאים')
+  })
+
   it('lists the rest on the "more" page and orders widgets', () => {
-    expect(moreFeatures().map((f) => f.id)).toEqual(['prices', 'going-out', 'insights', 'household'])
+    expect(moreFeatures().map((f) => f.id)).toEqual(['prices', 'insights', 'household'])
     expect(dashboardWidgets()[0].id).toBe('insights')
     expect(featureForPath('/bills')?.id).toBe('bills')
     // The going-out card comes after the shopping list and the bills.

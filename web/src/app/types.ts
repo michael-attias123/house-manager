@@ -10,6 +10,8 @@ export interface FeatureNav {
   order: number
   /** Features in the same group share one bottom-nav slot and get tabs. */
   group?: NavGroupId
+  /** A one-word label for the bottom bar, when the title is too long for it. */
+  label?: string
 }
 
 /**

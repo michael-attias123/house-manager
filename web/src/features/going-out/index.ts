@@ -11,7 +11,8 @@ export const goingOutFeature: FeatureDefinition = {
   icon: Martini,
   path: '/going-out',
   routes: [{ path: 'going-out', element: createElement(GoingOutPage) }],
-  nav: { placement: 'more', order: 20 },
+  // Checked on the way out, so one tap from anywhere; the last bar slot before "עוד".
+  nav: { placement: 'primary', order: 40, label: 'יוצאים' },
   Widget: GoingOutWidget,
   // After the shopping list (20) and the bills (30).
   widgetOrder: 35,

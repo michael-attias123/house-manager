@@ -54,7 +54,7 @@ export function primaryNav(features: FeatureDefinition[] = FEATURES): NavEntry[]
   for (const f of primary) {
     const group = f.nav!.group
     if (!group) {
-      entries.push({ key: f.id, title: f.title, icon: f.icon, to: f.path, paths: [f.path] })
+      entries.push({ key: f.id, title: f.nav!.label ?? f.title, icon: f.icon, to: f.path, paths: [f.path] })
       continue
     }
     if (entries.some((e) => e.key === group)) continue
