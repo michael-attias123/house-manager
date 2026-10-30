@@ -297,3 +297,35 @@ def test_sync_keeps_admin_edits_and_admin_hides():
         assert row(conn, edited) == (*admin_values, False)
         assert (row(conn, hid)[0], row(conn, hid)[-1]) == ("קפה אחר", True)
         assert v.sync_venues(conn, back)["written"] == 0
+
+
+@pytest.mark.skipif(not DB_URL, reason="TEST_DATABASE_URL not set")
+def test_sync_keeps_details_another_source_filled_in():
+    """Runs after the tests above. The "חבר טעמים" import fills in what OSM lacks."""
+    import psycopg
+
+    venues = v.parse_venues(ELEMENTS)
+    place = next(x for x in venues if x.phone is None and x.opening_hours is None and x.osm_ref != "node/9000000003")
+    filled = ("08-1111111", "https://example.com/hever", "Su-Th 12:00-23:00", "בשרים; כשר")
+
+    def details(conn):
+        return conn.execute(
+            "select phone, website, opening_hours, cuisine from venues where osm_ref = %s", (place.osm_ref,)
+        ).fetchone()
+
+    with psycopg.connect(DB_URL) as conn:
+        assert v.sync_venues(conn, venues)["status"] == "ok"
+        conn.execute(
+            "update venues set phone = %s, website = coalesce(website, %s), opening_hours = %s,"
+            " cuisine = coalesce(cuisine, %s) where osm_ref = %s",
+            (filled[0], filled[1], filled[2], filled[3], place.osm_ref),
+        )
+        conn.commit()
+        before = details(conn)
+        # OSM still has none of them: nothing to write, nothing lost.
+        assert v.sync_venues(conn, venues)["written"] == 0
+        assert details(conn) == before and before[0] == filled[0] and before[2] == filled[2]
+        # OSM gets hours of its own: they win; the phone it lacks stays.
+        own = [replace(x, opening_hours="Mo-Su 10:00-20:00") if x.osm_ref == place.osm_ref else x for x in venues]
+        assert v.sync_venues(conn, own)["written"] == 1
+        assert details(conn)[:3] == (filled[0], before[1], "Mo-Su 10:00-20:00")

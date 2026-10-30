@@ -2322,6 +2322,48 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- "חבר טעמים" places (20261103000100_hever_teamim.sql): every one has a keva
+-- card deal everyone sees; running it again changes nothing, and a place
+-- already in the catalog gets the deal instead of a twin.
+do $$
+declare
+  n int;
+begin
+  n := (select count(*) from public.venues where source = 'hever');
+  assert n = 60, format('%s Hever places', n);
+  assert not exists (
+    select 1 from public.venues v
+    where v.source = 'hever' and not exists (
+      select 1 from public.venue_deals d
+      where d.venue_id = v.id and d.kind = 'member_card' and d.status = 'approved' and d.household_id is null)
+  ), 'a Hever place without its deal';
+  assert (select opening_hours from public.venues where source = 'hever' and name = 'בוצ''רי')
+    = 'Su-Th 12:00-23:00; Fr "12:00-שעתיים לפני כניסת שבת"; Sa "מצאת השבת - 23:30"', 'hours not converted';
+  assert (select note from public.venue_deals d join public.venues v on v.id = d.venue_id
+          where v.source = 'hever' and v.name = 'CHI CHI')
+    = 'בטעינת הכרטיס: 20%–30% הנחה · כולל ארוחות עסקיות, לא כולל כפל חברי מועדון', 'conditions not in the note';
+  assert (select hidden from public.venues where source = 'hever' limit 1) = false, 'Hever places hidden';
+end;
+$$;
+-- "Black" as OSM knows it, 40 m off and without a phone: the import gives
+-- that place the deal and the phone, and adds no twin.
+delete from public.venues where source = 'hever' and name = 'Black';
+insert into public.venues (osm_ref, name, kind, lat, lng, source)
+values ('node/900003', 'Black', 'restaurant', 31.224418 + 40.0 / 111195, 34.801447, 'osm');
+\ir ../migrations/20261103000100_hever_teamim.sql
+do $$
+begin
+  assert (select count(*) from public.venues where source = 'hever') = 59, 'a twin was added';
+  assert (select phone = '072-3940247' and opening_hours like 'Su-Th "12:00-%'
+          from public.venues where osm_ref = 'node/900003'), 'the OSM place did not get the details';
+  assert (select count(*) from public.venue_deals d join public.venues v on v.id = d.venue_id
+          where v.osm_ref = 'node/900003' and d.kind = 'member_card') = 1, 'the OSM place did not get the deal';
+  assert (select count(*) from public.venue_deals where kind = 'member_card' and title = 'מכבדים חבר טעמים') = 60,
+    'running it again added deals';
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- OpenTofu state (20261028000100_tofu_state.sql): one role, one table, no API.
 do $$
 declare

@@ -83,6 +83,8 @@ class Venue:
 
 
 COLUMNS = [f.name for f in fields(Venue)]
+# Kept when OSM has none: other sources fill them in (see the upsert in load()).
+KEPT = ("phone", "website", "opening_hours", "cuisine")
 
 
 def _tag(tags: dict, *keys: str) -> str | None:
@@ -241,16 +243,19 @@ def sync_venues(conn, venues: list[Venue]) -> dict:
         # An admin's edit wins over OSM (admin_update_venue), and a place an
         # admin hid is not shown again; both are still hidden when gone from OSM.
         edited = "venues.admin_edited_at is not null"
+        # Details OSM lacks but another source gave (the "חבר טעמים" import)
+        # are kept until OSM has its own.
+        new = {c: f"coalesce(excluded.{c}, venues.{c})" if c in KEPT else f"excluded.{c}" for c in data_cols}
         cur.execute(
             f"""
             insert into public.venues ({cols}, source, status, hidden)
             select {cols}, 'osm', 'approved', false from stage_venues
             on conflict (osm_ref) do update set
-              {", ".join(f"{c} = case when {edited} then venues.{c} else excluded.{c} end" for c in data_cols)},
+              {", ".join(f"{c} = case when {edited} then venues.{c} else {new[c]} end" for c in data_cols)},
               hidden = venues.hidden_by_admin
             where (venues.hidden and not venues.hidden_by_admin)
               or (not ({edited}) and ({", ".join(f"venues.{c}" for c in data_cols)})
-                  is distinct from ({", ".join(f"excluded.{c}" for c in data_cols)}))
+                  is distinct from ({", ".join(new[c] for c in data_cols)}))
             """
         )
         stats["written"] = cur.rowcount
