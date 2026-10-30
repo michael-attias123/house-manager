@@ -4,6 +4,7 @@ import { adminFeature } from '@/features/admin'
 import { billsFeature } from '@/features/bills'
 import { choresFeature } from '@/features/chores'
 import { expensesFeature } from '@/features/expenses'
+import { goingOutFeature } from '@/features/going-out'
 import { householdFeature } from '@/features/household'
 import { insightsFeature } from '@/features/insights'
 import { notificationsFeature } from '@/features/notifications'
@@ -23,6 +24,8 @@ export const FEATURES: FeatureDefinition[] = [
   billsFeature,
   choresFeature,
   pricesFeature,
+  // Before insights: both are "more" order 20, and the list order breaks the tie.
+  goingOutFeature,
   insightsFeature,
   householdFeature,
   adminFeature,

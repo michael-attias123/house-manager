@@ -74,6 +74,9 @@ export function createSeed(now: Date = new Date()): Db {
     item_categories: [
       { household_id: HOUSEHOLD, normalized_name: 'עוגיות', category: 'pantry', updated_at: at(daysAgo(20)) },
     ],
+    // "לאן יוצאים" (20261101000100_going_out.sql), filled in below.
+    venues: [],
+    venue_deals: [],
     // Stand-ins for auth.users and the admin tables (20261021000300_admin.sql).
     auth_users: [
       { id: MICHAEL, email: 'michael@demo', raw_user_meta_data: { full_name: 'מיכאל' }, created_at: at(daysAgo(200)), last_sign_in_at: at(today, '08:05') },
@@ -324,6 +327,70 @@ export function createSeed(now: Date = new Date()): Db {
     { id: 1, started_at: at(daysAgo(2), '06:17'), finished_at: at(daysAgo(2), '06:23'), status: 'ok', stats: runStats(daysAgo(2)) },
     { id: 2, started_at: at(daysAgo(1), '06:17'), finished_at: at(daysAgo(1), '06:22'), status: 'partial', stats: runStats(daysAgo(1), ['277']) },
     { id: 3, started_at: at(today, '06:17'), finished_at: at(today, '06:21'), status: 'ok', stats: runStats(today) },
+  )
+
+  // Going out: made-up places (no real business is named or located here) in
+  // the Old City, Ringelblum and by the university, standing in for the OSM
+  // catalog; most have no opening hours, like most of the real ones.
+  const venues: [string, string, number, number, string | null, Row?][] = [
+    ['בר הדוגמה', 'bar', 31.2412, 34.7878, 'Su-Th 18:00-02:00; Fr 21:00-04:00; Sa 20:00-02:00',
+      { address: 'רחוב הדוגמה 7', website: 'https://example.com/bar', instagram: 'demo.bar' }],
+    ['פאב השכונה', 'pub', 31.2648, 34.7968, 'Su-Th 15:00-04:00; Sa "צאת שבת עד 04:00"'],
+    ['הבית של הקפה', 'cafe', 31.26, 34.8, 'Su-Th 07:30-20:00; Fr 07:30-14:00'],
+    ['מטבח החצר', 'restaurant', 31.2398, 34.7905, '10:00-24:00; Fr,Sa 09:00-24:00', { phone: '08-0000000' }],
+    ['הכוס החצי מלאה', 'bar', 31.266, 34.799, null],
+    ['פינת הבירה', 'pub', 31.2613, 34.8035, null],
+    ['קפה המרפסת', 'cafe', 31.242, 34.7921, null],
+    ['הסלט המדברי', 'restaurant', 31.2535, 34.7935, 'Mo-We, Su 12:00-00:00; Th-Sa 12:00-01:00', { cuisine: 'mediterranean' }],
+    ['מועדון החול', 'nightclub', 31.2391, 34.7869, 'Th-Sa 23:00-05:00'],
+    ['גינת השקיעה', 'bar', 31.2639, 34.7952, 'Sa-Th 21:00-02:00; Fr 12:00-16:30, 21:00-02:00'],
+    ['השולחן הארוך', 'restaurant', 31.259, 34.7985, null],
+    ['קיוסק הכיכר', 'cafe', 31.2508, 34.7899, '24/7'],
+  ]
+  venues.forEach(([name, kind, lat, lng, hours, extra], i) => {
+    db.venues.push({
+      id: i + 1, osm_ref: `demo:node/${i + 1}`, name, kind, lat, lng, address: null, opening_hours: hours,
+      website: null, phone: null, instagram: null, cuisine: null, source: 'osm', household_id: null, created_by: null,
+      status: 'approved', hidden: false, review_note: null, created_at: at(daysAgo(40), '05:40'),
+      updated_at: at(daysAgo(3), '05:40'), ...extra,
+    })
+  })
+  // A place יהלי added: no location, waiting for approval.
+  db.venues.push({
+    id: 13, osm_ref: null, name: 'בר הגג החדש', kind: 'bar', lat: null, lng: null, address: 'רחוב הדוגמה 12',
+    opening_hours: null, website: null, phone: null, instagram: null, cuisine: null, source: 'community',
+    household_id: HOUSEHOLD, created_by: YAHALI, status: 'pending', hidden: false, review_note: null,
+    created_at: at(daysAgo(1), '22:10'), updated_at: at(daysAgo(1), '22:10'),
+  })
+  const venueDeal = (venueId: number, title: string, kind: string, weekdays: number[], hours: [string, string] | null, extra: Row = {}): Row => ({
+    id: id(), venue_id: venueId, household_id: null, created_by: null, title, kind, weekdays,
+    starts_at: hours ? `${hours[0]}:00` : null, ends_at: hours ? `${hours[1]}:00` : null, valid_from: null,
+    valid_until: null, note: null, status: 'approved', reviewed_by: MICHAEL, reviewed_at: at(daysAgo(20)),
+    review_note: null, last_confirmed_at: at(daysAgo(3), '21:00'), created_at: at(daysAgo(30)), ...extra,
+  })
+  const jazzNight = addDays(today, 2)
+  db.venue_deals.push(
+    venueDeal(1, 'יין ללא תחתית', 'special_day', [2], ['19:00', '23:00'], {
+      note: 'בקנייה של מנה עיקרית', household_id: HOUSEHOLD, created_by: MICHAEL,
+    }),
+    venueDeal(2, 'בירה מהחבית בחצי מחיר', 'happy_hour', [], ['17:00', '19:00']),
+    venueDeal(6, '1+1 על בירה', 'special_day', [4], ['21:00', '01:00'], { last_confirmed_at: at(daysAgo(75), '22:30') }),
+    venueDeal(4, 'עסקית צהריים', 'happy_hour', [0, 1, 2, 3, 4, 5], ['12:00', '16:00'], { note: 'מנה ראשונה ועיקרית' }),
+    venueDeal(3, 'הנחת סטודנטים', 'special_day', [0, 1, 2, 3, 4, 5], null, {
+      note: 'בהצגת תעודת סטודנט', last_confirmed_at: at(daysAgo(0), '09:15'),
+    }),
+    venueDeal(8, 'ערב ג׳אז', 'event', [], ['21:00', '23:30'], {
+      valid_from: jazzNight, valid_until: jazzNight, note: 'כניסה חופשית', created_at: at(daysAgo(4)),
+    }),
+    // יהלי's suggestion, seen only in this household until an admin approves it.
+    venueDeal(10, 'קוקטייל הבית 1+1', 'happy_hour', [0, 1, 2, 3, 4], ['21:00', '22:30'], {
+      household_id: HOUSEHOLD, created_by: YAHALI, status: 'pending', reviewed_by: null, reviewed_at: null,
+      last_confirmed_at: at(daysAgo(1), '20:30'), created_at: at(daysAgo(1), '20:30'),
+    }),
+    venueDeal(9, 'כניסה חינם לפני חצות', 'special_day', [4], ['23:00', '00:00'], {
+      household_id: HOUSEHOLD, created_by: YAHALI, status: 'rejected', reviewed_at: at(daysAgo(3)),
+      review_note: 'לא מצאנו את הדיל בעמוד של המקום', last_confirmed_at: at(daysAgo(6)), created_at: at(daysAgo(6)),
+    }),
   )
 
   // דירת ניסיון: two items on טל's list, nothing else.
