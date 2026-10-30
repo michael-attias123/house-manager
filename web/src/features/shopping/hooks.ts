@@ -1,28 +1,34 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { FrequentItem, ListItem } from '@/lib/db-types'
+import type { FrequentItem, ItemCategory, ListItem } from '@/lib/db-types'
 import { useRealtimeInvalidate } from '@/lib/realtime'
 import { useHousehold } from '@/features/household/HouseholdProvider'
 import {
   addItem,
   completeTrip,
   deleteItem,
+  deleteItems,
   fetchDefaultList,
   fetchFrequentItems,
+  fetchItemCategories,
   fetchItems,
   fetchProductLink,
   fetchTrips,
+  saveItemCategory,
   uncheckAll,
   updateItem,
   type CompleteTripInput,
   type ListItemPatch,
 } from './api'
-import { guessCategory, parseItemInput } from './lib/categories'
+import { parseItemInput } from './lib/categories'
+import { categoryKey } from './lib/classify'
+import { learnedMap, resolveCategory } from './lib/resolve'
 
 export const shoppingKeys = {
   list: (householdId: string) => ['shopping-list', householdId] as const,
   items: (listId: string) => ['list-items', listId] as const,
   frequent: (householdId: string) => ['frequent-items', householdId] as const,
   trips: (householdId: string) => ['shopping-trips', householdId] as const,
+  categories: (householdId: string) => ['item-categories', householdId] as const,
 }
 
 export function useDefaultList() {
@@ -51,6 +57,37 @@ export function useFrequentItems() {
     queryFn: () => fetchFrequentItems(household.id),
     staleTime: 5 * 60_000,
   })
+}
+
+/** Departments the household chose by hand; the partner's changes arrive live. */
+export function useItemCategories() {
+  const { household } = useHousehold()
+  useRealtimeInvalidate('item_categories', household.id, [shoppingKeys.categories(household.id)])
+  return useQuery({
+    queryKey: shoppingKeys.categories(household.id),
+    queryFn: () => fetchItemCategories(household.id),
+    staleTime: 5 * 60_000,
+  })
+}
+
+/** Remembers a department for a name, optimistically. */
+function useRememberCategory() {
+  const { household } = useHousehold()
+  const queryClient = useQueryClient()
+  const key = shoppingKeys.categories(household.id)
+  return async (name: string, category: string) => {
+    const normalized = categoryKey(name)
+    if (!normalized) return
+    queryClient.setQueryData<ItemCategory[]>(key, (rows = []) => [
+      ...rows.filter((r) => r.normalized_name !== normalized),
+      { household_id: household.id, normalized_name: normalized, category, updated_at: new Date().toISOString() },
+    ])
+    try {
+      await saveItemCategory(household.id, normalized, category)
+    } finally {
+      void queryClient.invalidateQueries({ queryKey: key })
+    }
+  }
 }
 
 export function useTrips() {
@@ -94,14 +131,14 @@ export function useAddItem(listId: string) {
   const { household, user } = useHousehold()
   const queryClient = useQueryClient()
 
-  // Same answer for the optimistic row and the saved one: the department the
-  // item was filed under last time, else a keyword guess.
+  // Same answer for the optimistic row and the saved one (resolveCategory).
   const resolve = ({ text, category }: AddItemVars) => {
     const { name, quantity } = parseItemInput(text)
     const previous = queryClient
       .getQueryData<FrequentItem[]>(shoppingKeys.frequent(household.id))
       ?.find((f) => f.normalized_name === name.toLowerCase())
-    return { name, quantity, category: category ?? previous?.category ?? guessCategory(name), previous }
+    const learned = learnedMap(queryClient.getQueryData<ItemCategory[]>(shoppingKeys.categories(household.id)))
+    return { name, quantity, category: resolveCategory(name, category, learned, previous), previous }
   }
 
   return useOptimisticItems<AddItemVars & { id: string }>(
@@ -164,11 +201,55 @@ export function useUpdateItem(listId: string) {
   )
 }
 
+/**
+ * Moves an item to another department, together with every item of the same
+ * name on the list, and remembers the choice for next time.
+ */
+export function useMoveItem(listId: string) {
+  const queryClient = useQueryClient()
+  const remember = useRememberCategory()
+  const twins = (items: ListItem[] = [], name: string) => {
+    const key = categoryKey(name)
+    return items.filter((i) => categoryKey(i.name) === key)
+  }
+  return useOptimisticItems<{ item: ListItem; category: string }>(
+    listId,
+    async ({ item, category }) => {
+      const same = twins(queryClient.getQueryData<ListItem[]>(shoppingKeys.items(listId)), item.name)
+      const ids = new Set([item.id, ...same.map((i) => i.id)])
+      await Promise.all([...ids].map((id) => updateItem(id, { category })))
+      await remember(item.name, category)
+    },
+    (items, { item, category }) => {
+      const ids = new Set([item.id, ...twins(items, item.name).map((i) => i.id)])
+      return items.map((i) => (ids.has(i.id) ? { ...i, category } : i))
+    },
+  )
+}
+
+/** Remembers a department chosen in the edit sheet. */
+export function useLearnCategory() {
+  const remember = useRememberCategory()
+  return useMutation({ mutationFn: ({ name, category }: { name: string; category: string }) => remember(name, category) })
+}
+
 export function useDeleteItem(listId: string) {
   return useOptimisticItems<string>(
     listId,
     (id) => deleteItem(id),
     (items, id) => items.filter((i) => i.id !== id),
+  )
+}
+
+/** Deletes several items in one request (selection mode). */
+export function useDeleteItems(listId: string) {
+  return useOptimisticItems<string[]>(
+    listId,
+    (ids) => deleteItems(ids),
+    (items, ids) => {
+      const gone = new Set(ids)
+      return items.filter((i) => !gone.has(i.id))
+    },
   )
 }
 

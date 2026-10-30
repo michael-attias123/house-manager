@@ -1,5 +1,5 @@
 import { supabase, unwrap } from '@/lib/supabase'
-import type { FrequentItem, ListItem, ShoppingList, ShoppingTrip } from '@/lib/db-types'
+import type { FrequentItem, ItemCategory, ListItem, ShoppingList, ShoppingTrip } from '@/lib/db-types'
 
 export async function fetchDefaultList(householdId: string): Promise<ShoppingList> {
   const lists = unwrap(
@@ -46,6 +46,11 @@ export async function deleteItem(id: string): Promise<void> {
   unwrap(await supabase.from('list_items').delete().eq('id', id))
 }
 
+export async function deleteItems(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  unwrap(await supabase.from('list_items').delete().in('id', ids))
+}
+
 export async function uncheckAll(listId: string): Promise<void> {
   unwrap(
     await supabase
@@ -65,6 +70,24 @@ export async function fetchFrequentItems(householdId: string): Promise<FrequentI
       .order('times_bought', { ascending: false })
       .limit(200),
   ) as FrequentItem[]
+}
+
+export async function fetchItemCategories(householdId: string): Promise<ItemCategory[]> {
+  return unwrap(
+    await supabase.from('item_categories').select('*').eq('household_id', householdId),
+  ) as ItemCategory[]
+}
+
+/** Remembers the department the household chose for a name (key: categoryKey()). */
+export async function saveItemCategory(householdId: string, normalizedName: string, category: string): Promise<void> {
+  unwrap(
+    await supabase.from('item_categories').upsert({
+      household_id: householdId,
+      normalized_name: normalizedName,
+      category,
+      updated_at: new Date().toISOString(),
+    }),
+  )
 }
 
 /** The product a household linked to this item name before, if any. */
