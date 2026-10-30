@@ -94,6 +94,20 @@ its components.
   goes there. `detach_member()` is the one rule for taking a member out
   (admin removal and deleted accounts): placeholder if they have history.
 
+## Going out ("יוצאים")
+
+Places in Be'er Sheva and their deals (`features/going-out`, migrations
+`*_going_out.sql`, `*_venue_favorites.sql`, `*_hever_teamim.sql`). Places come
+from OpenStreetMap (`ingest/house_ingest/venues.py`, weekly `venues.yml`; it
+touches only `source = 'osm'`, keeps admin edits and details other sources
+filled in), from the "חבר טעמים" list (`source = 'hever'`, a one-time import
+made with `scripts/hever-to-sql.py`, see docs/setup.md) and from households
+(`community`, approved by an admin). Deals are written by households and
+approved in the admin's "הצעות" tab; `member_card` deals ("כרטיס חבר") are
+standing discounts and never count as "on now". Opening hours are OSM syntax,
+read by `lib/hours.ts` (anything it can't read is unknown, never closed).
+The demo names no real business.
+
 ## Price data
 
 `ingest/` uses il-supermarket-scraper (non-commercial license, Sefi Erlich,

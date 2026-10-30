@@ -1,5 +1,5 @@
 import { supabase, unwrap } from '@/lib/supabase'
-import type { FrequentItem, ItemCategory, ListItem, ShoppingList, ShoppingTrip } from '@/lib/db-types'
+import type { FrequentItem, ItemCategory, ListItem, ShoppingList } from '@/lib/db-types'
 
 export async function fetchDefaultList(householdId: string): Promise<ShoppingList> {
   const lists = unwrap(
@@ -121,15 +121,4 @@ export async function completeTrip(input: CompleteTripInput): Promise<string> {
       p_trip_date: input.tripDate,
     }),
   ) as string
-}
-
-export async function fetchTrips(householdId: string, limit = 50): Promise<ShoppingTrip[]> {
-  return unwrap(
-    await supabase
-      .from('shopping_trips')
-      .select('*')
-      .eq('household_id', householdId)
-      .order('trip_date', { ascending: false })
-      .limit(limit),
-  ) as ShoppingTrip[]
 }

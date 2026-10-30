@@ -38,8 +38,3 @@ export function distanceParts(km: number): [string, string] {
   if (tenths < 10) return [tenths.toFixed(1), 'ק״מ']
   return [String(Math.round(km)), 'ק״מ']
 }
-
-/** "350 מ׳", "1.2 ק״מ". */
-export function formatDistance(km: number): string {
-  return distanceParts(km).join(' ')
-}

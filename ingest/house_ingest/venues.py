@@ -50,8 +50,7 @@ KINDS = {
     "ice_cream": "cafe",
 }
 
-# The city by its administrative boundary, under any of its names (as
-# scripts/venues-probe.py found it).
+# The city by its administrative boundary, under any of its names.
 QUERY = f"""
 [out:json][timeout:90];
 (
@@ -296,6 +295,8 @@ def main(argv: list[str] | None = None) -> int:
         "elements": len(elements),
         "venues": len(venues),
         "by_kind": dict(Counter(v.kind for v in venues).most_common()),
+        # How much OSM knows beyond a name and a place.
+        "with": {c: sum(getattr(v, c) is not None for v in venues) for c in ("opening_hours", "phone", "website", "address")},
     }
     if not venues:
         # The area was not found, or Overpass answered with nothing.

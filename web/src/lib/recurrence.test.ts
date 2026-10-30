@@ -1,4 +1,4 @@
-import { nextDueAfterCompletion, nextOccurrence, occurrencesBetween } from './recurrence'
+import { nextDueAfterCompletion, nextOccurrence } from './recurrence'
 
 describe('recurrence', () => {
   it('finds the next weekly occurrence', () => {
@@ -20,11 +20,4 @@ describe('recurrence', () => {
     expect(nextDueAfterCompletion(rule, '2026-10-20', '2026-10-17')).toBe('2026-10-27')
   })
 
-  it('lists occurrences in a window', () => {
-    expect(occurrencesBetween({ kind: 'daily' }, '2026-10-16', '2026-10-17', '2026-10-19')).toEqual([
-      '2026-10-17',
-      '2026-10-18',
-      '2026-10-19',
-    ])
-  })
 })

@@ -12,7 +12,6 @@ import {
   fetchItemCategories,
   fetchItems,
   fetchProductLink,
-  fetchTrips,
   saveItemCategory,
   uncheckAll,
   updateItem,
@@ -27,7 +26,6 @@ export const shoppingKeys = {
   list: (householdId: string) => ['shopping-list', householdId] as const,
   items: (listId: string) => ['list-items', listId] as const,
   frequent: (householdId: string) => ['frequent-items', householdId] as const,
-  trips: (householdId: string) => ['shopping-trips', householdId] as const,
   categories: (householdId: string) => ['item-categories', householdId] as const,
 }
 
@@ -88,14 +86,6 @@ function useRememberCategory() {
       void queryClient.invalidateQueries({ queryKey: key })
     }
   }
-}
-
-export function useTrips() {
-  const { household } = useHousehold()
-  return useQuery({
-    queryKey: shoppingKeys.trips(household.id),
-    queryFn: () => fetchTrips(household.id),
-  })
 }
 
 /** Optimistically applies `apply` to the cached list; rolls back on error. */
@@ -269,7 +259,6 @@ export function useCompleteTrip() {
     onSuccess: (_tripId, input) => {
       void queryClient.invalidateQueries({ queryKey: shoppingKeys.items(input.listId) })
       void queryClient.invalidateQueries({ queryKey: shoppingKeys.frequent(household.id) })
-      void queryClient.invalidateQueries({ queryKey: shoppingKeys.trips(household.id) })
     },
   })
 }

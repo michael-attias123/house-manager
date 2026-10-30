@@ -1,7 +1,7 @@
 // When a deal is on. Pure: `now` comes from the caller, and every rule is
 // read on the Asia/Jerusalem clock, whatever the phone's time zone.
 import type { VenueDeal } from '@/lib/db-types'
-import { addDays, diffDays, relativeDay, weekday, WEEKDAY_LABELS, type ISODate } from '@/lib/dates'
+import { addDays, relativeDay, weekday, WEEKDAY_LABELS, type ISODate } from '@/lib/dates'
 
 export interface Clock {
   /** The calendar day in Be'er Sheva. */
@@ -145,9 +145,4 @@ export function confirmedLabel(deal: Pick<VenueDeal, 'last_confirmed_at'>, now: 
   const today = jerusalemClock(now).day
   const day = jerusalemClock(new Date(deal.last_confirmed_at)).day
   return `אומת ${relativeDay(day > today ? today : day, today)}`
-}
-
-/** Days from today (Be'er Sheva) to an ISO day. */
-export function daysUntil(day: ISODate, now: Date): number {
-  return diffDays(day, jerusalemClock(now).day)
 }
