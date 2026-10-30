@@ -248,3 +248,52 @@ def test_sync_upserts_hides_and_refuses_a_partial_answer(monkeypatch, capsys):
         # The place is back in OSM: shown again.
         assert v.sync_venues(conn, venues)["status"] == "ok"
         assert rows(conn)[gone][2] is False
+
+
+@pytest.mark.skipif(not DB_URL, reason="TEST_DATABASE_URL not set")
+def test_sync_keeps_admin_edits_and_admin_hides():
+    """Runs after the test above: every place in the sample is loaded and shown."""
+    import psycopg
+
+    edited, hid = "node/9000000003", "node/9000000005"
+    admin_values = ("מסעדת המבחן (עריכה)", "bar", 31.25, 34.8, "רחוב הבדיקה 3", "Mo-Su 12:00-23:00",
+                    "https://example.com/edit", "08-0000000", "edited.example", "pizza")
+    cols = ", ".join(v.COLUMNS[1:])
+
+    def row(conn, ref):
+        return conn.execute(f"select {cols}, hidden from venues where osm_ref = %s", (ref,)).fetchone()
+
+    venues = v.parse_venues(ELEMENTS)
+    with psycopg.connect(DB_URL) as conn:
+        assert v.sync_venues(conn, venues)["written"] == 0
+        # As admin_update_venue and admin_hide_venue leave them.
+        conn.execute(
+            f"update venues set ({cols}) = ({', '.join(['%s'] * len(admin_values))}), admin_edited_at = now()"
+            " where osm_ref = %s",
+            (*admin_values, edited),
+        )
+        conn.execute("update venues set hidden = true, hidden_by_admin = true where osm_ref = %s", (hid,))
+        conn.commit()
+
+        # OSM still has both: the edit stays, the hidden place stays hidden;
+        # a place nobody edited still follows OSM.
+        renamed = [replace(x, name="פלאפל לדוגמה 2") if x.osm_ref == "node/9000000004" else x for x in venues]
+        result = v.sync_venues(conn, renamed)
+        assert (result["status"], result["written"], result["hidden"]) == ("ok", 1, 0)
+        assert row(conn, edited) == (*admin_values, False)
+        assert row(conn, hid)[-1] is True
+        assert row(conn, "node/9000000004")[0] == "פלאפל לדוגמה 2"
+
+        # The edited place leaves OSM: hidden, with the admin's values.
+        result = v.sync_venues(conn, [x for x in renamed if x.osm_ref != edited])
+        assert (result["written"], result["hidden"]) == (0, 1)
+        assert row(conn, edited) == (*admin_values, True)
+
+        # It is back: shown, still with the admin's values. The admin-hidden
+        # place, with a changed name in OSM, gets the name but stays hidden.
+        back = [replace(x, name="קפה אחר") if x.osm_ref == hid else x for x in renamed]
+        result = v.sync_venues(conn, back)
+        assert (result["written"], result["hidden"]) == (2, 0)
+        assert row(conn, edited) == (*admin_values, False)
+        assert (row(conn, hid)[0], row(conn, hid)[-1]) == ("קפה אחר", True)
+        assert v.sync_venues(conn, back)["written"] == 0

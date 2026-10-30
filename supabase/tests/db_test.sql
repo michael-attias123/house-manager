@@ -916,8 +916,11 @@ $$;
 -- 9. The schema rules the admin screen relies on.
 do $$
 begin
+  -- A column that only remembers a household (venues.suggested_household_id)
+  -- may be set null instead; household_id itself always cascades.
   assert not exists (
-    select 1 from pg_constraint where contype = 'f' and confrelid = 'public.households'::regclass and confdeltype <> 'c'
+    select 1 from pg_constraint c where contype = 'f' and confrelid = 'public.households'::regclass and confdeltype <> 'c'
+      and not (confdeltype = 'n' and (select attname from pg_attribute where attrelid = c.conrelid and attnum = c.conkey[1]) <> 'household_id')
   ), format('FKs to households without on delete cascade: %s', (
     select string_agg(conrelid::regclass || '.' || conname, ', ') from pg_constraint
     where contype = 'f' and confrelid = 'public.households'::regclass and confdeltype <> 'c'
@@ -1506,10 +1509,10 @@ insert into public.notification_prefs (user_id, going_out) values
   ('00000000-0000-0000-0000-0000000000c2', true), ('00000000-0000-0000-0000-0000000000c3', true);
 insert into public.notification_prefs (user_id, admin) values ('00000000-0000-0000-0000-0000000000c4', true);
 
-insert into public.venues (osm_ref, name, kind, lat, lng, source, hidden) values
-  ('node/1001', 'בר הבדיקה', 'bar', 31.2430, 34.7930, 'osm', false),
-  ('way/1002', 'קפה לדוגמה', 'cafe', 31.2620, 34.8010, 'osm', false),
-  ('node/1003', 'פאב שנסגר', 'pub', 31.2500, 34.7900, 'osm', true);
+insert into public.venues (osm_ref, name, kind, lat, lng, opening_hours, source, hidden) values
+  ('node/1001', 'בר הבדיקה', 'bar', 31.2430, 34.7930, 'Su-Th 17:00-01:00', 'osm', false),
+  ('way/1002', 'קפה לדוגמה', 'cafe', 31.2620, 34.8010, null, 'osm', false),
+  ('node/1003', 'פאב שנסגר', 'pub', 31.2500, 34.7900, null, 'osm', true);
 select id as gv_bar from public.venues where osm_ref = 'node/1001' \gset
 
 set role authenticated;
@@ -1527,8 +1530,9 @@ values ('הפינה של טל', 'other', 'community', 'pending', :'ghid2') retur
 select public.test_login('00000000-0000-0000-0000-0000000000c1');
 insert into public.venues (name, kind, lat, lng, source, status, household_id)
 values ('בר הבדיקה!', 'bar', 31.2431, 34.7931, 'community', 'pending', :'ghid') returning id as gv_dup \gset
-insert into public.venues (name, kind, lat, lng, address, source, status, household_id)
-values ('גינת הבירה', 'pub', 31.2700, 34.7800, 'רחוב הדוגמה 5', 'community', 'pending', :'ghid')
+insert into public.venues (name, kind, lat, lng, address, opening_hours, website, phone, instagram, source, status, household_id)
+values ('גינת הבירה', 'pub', 31.2700, 34.7800, 'רחוב הדוגמה 5', 'Th-Sa 20:00-02:00', 'https://example.com/ginat',
+  '08-0000005', 'ginat.example', 'community', 'pending', :'ghid')
 returning id as gv_new \gset
 insert into public.venue_deals (venue_id, household_id, title, kind, weekdays, starts_at, ends_at)
 values (:gv_bar, :'ghid', 'בירה בחצי מחיר', 'happy_hour', '{0,1,2,3,4}', '18:00', '20:00') returning id as gd_bar \gset
@@ -1694,7 +1698,11 @@ declare
     'select public.admin_list_suggestions()',
     format('select public.admin_review_deal(%L, true)', current_setting('test.gd_bar')),
     format('select public.admin_review_venue(%s, true)', current_setting('test.gv_new')),
-    format('select public.admin_merge_venue(%s, %s)', current_setting('test.gv_dup'), current_setting('test.gv_bar'))
+    format('select public.admin_merge_venue(%s, %s)', current_setting('test.gv_dup'), current_setting('test.gv_bar')),
+    format('select public.admin_update_deal(%L, ''נפרץ'', ''event'', ''{}'', null, null, null, null, null)', current_setting('test.gd_bar')),
+    format('select public.admin_update_venue(%s, ''נפרץ'', ''bar'', null, null, null, null, null, null, null)', current_setting('test.gv_bar')),
+    format('select public.admin_delete_deal(%L)', current_setting('test.gd_bar')),
+    format('select public.admin_hide_venue(%s, true)', current_setting('test.gv_bar'))
   ];
   c text;
 begin
@@ -1724,6 +1732,23 @@ begin
 end;
 $$;
 reset role;
+do $$
+declare
+  f text;
+begin
+  foreach f in array array[
+    'public.admin_update_deal(uuid, text, text, smallint[], time, time, date, date, text)',
+    'public.admin_update_venue(bigint, text, text, text, text, text, text, text, double precision, double precision)',
+    'public.admin_delete_deal(uuid)', 'public.admin_hide_venue(bigint, boolean)'
+  ] loop
+    assert not has_function_privilege('anon', f, 'execute') and has_function_privilege('authenticated', f, 'execute'),
+      'wrong grants on ' || f;
+  end loop;
+  foreach f in array array['public.going_out_review_key(uuid, text)', 'public.set_suggested_household()'] loop
+    assert not has_function_privilege('authenticated', f, 'execute'), 'clients can run ' || f;
+  end loop;
+end;
+$$;
 
 -- An admin's own suggestion (נועה, from the notifications tests) is not
 -- announced to her, only to the other admins.
@@ -1798,7 +1823,9 @@ begin
   assert s.similar_venue_id = gv_bar and s.similar_venue_name = 'בר הבדיקה' and s.household_name = 'הכהנים'
     and s.venue_status = 'pending' and s.deal_id is null and s.title is null, format('duplicate place row wrong: %s', to_jsonb(s));
   select * into s from public.admin_list_suggestions() where item_type = 'venue' and venue_id = gv_new;
-  assert s.similar_venue_id is null and s.venue_address = 'רחוב הדוגמה 5' and s.venue_kind = 'pub',
+  assert s.similar_venue_id is null and s.venue_address = 'רחוב הדוגמה 5' and s.venue_kind = 'pub'
+    and s.venue_opening_hours = 'Th-Sa 20:00-02:00' and s.venue_website = 'https://example.com/ginat'
+    and s.venue_phone = '08-0000005' and s.venue_instagram = 'ginat.example',
     format('new place row wrong: %s', to_jsonb(s));
   select * into s from public.admin_list_suggestions() where deal_id = gd_dup;
   assert s.venue_name = 'בר הבדיקה!' and s.venue_status = 'pending' and s.deal_kind = 'special_day'
@@ -1806,7 +1833,7 @@ begin
     format('deal row wrong: %s', to_jsonb(s));
   select * into s from public.admin_list_suggestions() where deal_id = gd_bar;
   assert s.venue_status = 'approved' and s.starts_at = '18:00' and s.ends_at = '20:00' and s.venue_lat = 31.2430
-    and s.household_id = ghid, format('deal row wrong: %s', to_jsonb(s));
+    and s.household_id = ghid and s.venue_opening_hours = 'Su-Th 17:00-01:00', format('deal row wrong: %s', to_jsonb(s));
 
   -- A deal waits for its place.
   begin
@@ -1923,7 +1950,7 @@ begin
   select * into o from public.notification_outbox
   where user_id = ron and dedup_key = 'going-out:approved:deal:' || current_setting('test.gd_bar');
   assert o.kind = 'going_out' and o.title = 'ההצעה אושרה' and o.body = 'בירה בחצי מחיר בבר הבדיקה מופיע עכשיו לכולם'
-    and o.url = '/going-out', format('approval notification wrong: %s', to_jsonb(o));
+    and o.url = '/going-out/suggestions', format('approval notification wrong: %s', to_jsonb(o));
   assert (select body from public.notification_outbox
           where user_id = ron and dedup_key = 'going-out:approved:venue:' || current_setting('test.gv_new'))
     = 'גינת הבירה מופיע עכשיו לכולם', 'place approval notification wrong';
@@ -1932,8 +1959,8 @@ begin
     = 'ערב ג׳אז בגינת הבירה מופיע עכשיו לכולם', 'approval of the event wrong';
   select * into o from public.notification_outbox
   where user_id = ron and dedup_key = 'going-out:rejected:deal:' || current_setting('test.gd_dup');
-  assert o.kind = 'going_out' and o.title = 'ההצעה לא אושרה' and o.body = 'שלישי: יין ללא תחתית: כבר לא בתוקף',
-    format('rejection notification wrong: %s', to_jsonb(o));
+  assert o.kind = 'going_out' and o.title = 'ההצעה לא אושרה' and o.body = 'שלישי: יין ללא תחתית: כבר לא בתוקף'
+    and o.url = '/going-out/suggestions', format('rejection notification wrong: %s', to_jsonb(o));
   -- Without a note, just the name.
   assert (select body from public.notification_outbox
           where user_id = '00000000-0000-0000-0000-0000000000c3'
@@ -1984,6 +2011,232 @@ begin
   assert exists (
     select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'venue_deals'
   ), 'venue_deals not in the realtime publication';
+end;
+$$;
+
+-- 9. Editing after a review. A rejected suggestion that its household edits
+-- goes back to the admins, the admin's note kept; admins edit, delete and
+-- hide anything, whatever its status.
+do $$
+begin
+  assert (select household_id is null and suggested_household_id = current_setting('test.ghid')::uuid
+          from public.venues where id = current_setting('test.gv_new')::bigint), 'suggesting household not kept after approval';
+  assert (select suggested_household_id from public.venues where id = current_setting('test.gv_tal')::bigint)
+    = current_setting('test.ghid2')::uuid, 'suggesting household not set';
+  assert (select suggested_household_id is null and admin_edited_at is null and not hidden_by_admin
+          from public.venues where id = current_setting('test.gv_bar')::bigint), 'OSM place columns wrong';
+end;
+$$;
+
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000c1');
+do $$
+declare
+  ghid uuid := current_setting('test.ghid')::uuid;
+  gd_dup uuid := current_setting('test.gd_dup')::uuid;
+  vid bigint;
+  sid uuid;
+  d public.venue_deals;
+  n int;
+begin
+  -- The suggesting household is the inserting one; the admin columns are the RPCs'.
+  insert into public.venues (name, kind, source, status, household_id, suggested_household_id)
+  values ('מקום בשם אחר', 'bar', 'community', 'pending', ghid, current_setting('test.ghid2')::uuid)
+  returning id, suggested_household_id into vid, sid;
+  assert sid = ghid, 'a client chose the suggesting household';
+  begin
+    update public.venues set suggested_household_id = null where id = vid;
+    raise exception 'suggesting household changed by a member';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.venues set admin_edited_at = now() where id = vid;
+    raise exception 'admin_edited_at set by a member';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.venues set hidden_by_admin = true where id = vid;
+    raise exception 'hidden_by_admin set by a member';
+  exception when insufficient_privilege then null;
+  end;
+  delete from public.venues where id = vid;
+
+  -- Unchanged content is no edit, and the status is still not the client's.
+  update public.venue_deals set title = title where id = gd_dup;
+  assert (select status from public.venue_deals where id = gd_dup) = 'rejected', 'an update without changes resubmitted';
+  begin
+    update public.venue_deals set status = 'pending' where id = gd_dup;
+    raise exception 'rejected deal resubmitted directly';
+  exception when insufficient_privilege then null;
+  end;
+  update public.venue_deals set title = 'שלישי: יין ב-20 ש״ח', note = 'עם מנה עיקרית' where id = gd_dup;
+  get diagnostics n = row_count;
+  assert n = 1, 'own rejected deal not editable';
+  select * into d from public.venue_deals where id = gd_dup;
+  assert d.status = 'pending' and d.reviewed_by is null and d.reviewed_at is null and d.review_note = 'כבר לא בתוקף'
+    and d.title = 'שלישי: יין ב-20 ש״ח', format('resubmission wrong: %s', to_jsonb(d));
+  -- An approved deal is still the admin's.
+  update public.venue_deals set title = 'שונה' where id = current_setting('test.gd_bar')::uuid;
+  get diagnostics n = row_count;
+  assert n = 0, 'an approved deal was edited';
+end;
+$$;
+
+select public.test_login('00000000-0000-0000-0000-0000000000c3');
+update public.venues set name = 'הפינה של טל, עם כתובת', address = 'רחוב הניסוי 3' where id = :gv_tal;
+reset role;
+
+do $$
+declare
+  maya uuid := '00000000-0000-0000-0000-0000000000c4';
+  o public.notification_outbox;
+begin
+  assert (select status = 'pending' and household_id = current_setting('test.ghid2')::uuid
+          from public.venues where id = current_setting('test.gv_tal')::bigint), 'rejected place not resubmitted';
+  select * into o from public.notification_outbox
+  where user_id = maya and dedup_key like 'going-out:resubmit:deal:' || current_setting('test.gd_dup') || ':%';
+  assert o.kind = 'admin' and o.title = 'הצעה נשלחה שוב לאישור' and o.body = 'בר הבדיקה: שלישי: יין ב-20 ש״ח, מבית הכהנים'
+    and o.url = '/admin?tab=suggestions', format('resubmitted deal notification wrong: %s', to_jsonb(o));
+  select * into o from public.notification_outbox
+  where user_id = maya and dedup_key like 'going-out:resubmit:venue:' || current_setting('test.gv_tal') || ':%';
+  assert o.kind = 'admin' and o.title = 'הצעה נשלחה שוב לאישור' and o.body = 'הפינה של טל, עם כתובת: מקום חדש, מבית בית טל'
+    and o.url = '/admin?tab=suggestions', format('resubmitted place notification wrong: %s', to_jsonb(o));
+  assert not exists (
+    select 1 from public.notification_outbox
+    where dedup_key like 'going-out:resubmit:%' and user_id in (
+      '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-0000000000c3')
+  ), 'members were told about a resubmission';
+end;
+$$;
+
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000c4');
+do $$
+declare
+  gv_bar bigint := current_setting('test.gv_bar')::bigint;
+  gv_new bigint := current_setting('test.gv_new')::bigint;
+  gv_tal bigint := current_setting('test.gv_tal')::bigint;
+  gd_bar uuid := current_setting('test.gd_bar')::uuid;
+  gd_dup uuid := current_setting('test.gd_dup')::uuid;
+  d public.venue_deals;
+  v public.venues;
+  c text;
+begin
+  assert (select count(*) from public.admin_list_suggestions()
+          where deal_id = gd_dup or (item_type = 'venue' and venue_id = gv_tal)) = 2, 'resubmitted suggestions not listed';
+
+  -- An approved deal: edited, still approved.
+  perform public.admin_update_deal(gd_bar, ' בירה 1+1 ', 'happy_hour', '{4,5}', '19:00', '21:00', null, null, ' ');
+  select * into d from public.venue_deals where id = gd_bar;
+  assert d.title = 'בירה 1+1' and d.weekdays = '{4,5}' and d.starts_at = '19:00' and d.ends_at = '21:00' and d.note is null
+    and d.status = 'approved' and d.reviewed_at is not null, format('admin deal edit wrong: %s', to_jsonb(d));
+  -- A pending one stays pending; rejected again, the household hears again.
+  perform public.admin_update_deal(gd_dup, 'שלישי: יין ב-25 ש״ח', 'special_day', '{2}', null, null, null, null, 'עם מנה עיקרית');
+  -- (Another household's pending rows are not readable: through the list.)
+  assert exists (select 1 from public.admin_list_suggestions() where deal_id = gd_dup and title = 'שלישי: יין ב-25 ש״ח'),
+    'admin edit of a pending deal wrong';
+  perform public.admin_review_deal(gd_dup, false, 'עדיין לא');
+
+  -- An OSM place, marked for the ingest.
+  perform public.admin_update_venue(gv_bar, 'בר הבדיקה המחודש', 'pub', ' רחוב הבדיקה 1 ', 'Mo-Su 18:00-02:00',
+    'https://example.com/bar', ' ', 'bar.example', 31.2440, 34.7940);
+  select * into v from public.venues where id = gv_bar;
+  assert v.name = 'בר הבדיקה המחודש' and v.kind = 'pub' and v.address = 'רחוב הבדיקה 1'
+    and v.opening_hours = 'Mo-Su 18:00-02:00' and v.website = 'https://example.com/bar' and v.phone is null
+    and v.instagram = 'bar.example' and v.lat = 31.2440 and v.lng = 34.7940 and v.admin_edited_at is not null
+    and v.source = 'osm' and v.osm_ref = 'node/1001' and v.status = 'approved', format('admin place edit wrong: %s', to_jsonb(v));
+  -- A pending place stays pending until it is approved.
+  perform public.admin_update_venue(gv_tal, 'הפינה של טל', 'cafe', 'רחוב הניסוי 3', null, null, null, null, null, null);
+  assert exists (select 1 from public.admin_list_suggestions()
+                 where item_type = 'venue' and venue_id = gv_tal and venue_name = 'הפינה של טל' and venue_kind = 'cafe'),
+    'admin edit of a pending place wrong';
+  perform public.admin_review_venue(gv_tal, true);
+  begin
+    perform public.admin_update_venue(gv_tal, 'הפינה של טל', 'cafe', null, null, null, null, null, 31.25, null);
+    raise exception 'a place with lat and no lng accepted';
+  exception when check_violation then null;
+  end;
+
+  foreach c in array array[
+    format('select public.admin_update_deal(%L, ''אין כזה'', ''event'', ''{}'', null, null, null, null, null)', gen_random_uuid()),
+    'select public.admin_update_venue(-1, ''אין כזה'', ''bar'', null, null, null, null, null, null, null)',
+    format('select public.admin_delete_deal(%L)', gen_random_uuid()),
+    'select public.admin_hide_venue(-1, true)'
+  ] loop
+    begin
+      execute c;
+      raise exception 'no error for a missing row: %', c;
+    exception when no_data_found then
+      if sqlerrm <> 'not found' then raise; end if;
+    end;
+  end loop;
+  begin
+    perform public.admin_hide_venue(gv_new, null);
+    raise exception 'hidden without saying whether';
+  exception when invalid_parameter_value then null;
+  end;
+
+  perform public.admin_hide_venue(gv_new, true);
+  perform public.admin_delete_deal(current_setting('test.gd_new')::uuid);
+end;
+$$;
+reset role;
+
+do $$
+declare
+  ron uuid := '00000000-0000-0000-0000-0000000000c2';
+  o public.notification_outbox;
+begin
+  assert (select hidden and hidden_by_admin from public.venues where id = current_setting('test.gv_new')::bigint),
+    'place not hidden by the admin';
+  assert not exists (select 1 from public.venue_deals where id = current_setting('test.gd_new')::uuid), 'deal not deleted';
+  assert (select status = 'rejected' and title = 'שלישי: יין ב-25 ש״ח' and note = 'עם מנה עיקרית' and review_note = 'עדיין לא'
+          from public.venue_deals where id = current_setting('test.gd_dup')::uuid), 'admin edit of a pending deal not kept';
+  assert (select admin_edited_at is not null and address = 'רחוב הניסוי 3'
+          from public.venues where id = current_setting('test.gv_tal')::bigint), 'admin edit of a pending place not kept';
+  -- The second rejection is not dropped as a duplicate of the first.
+  assert (select count(*) from public.notification_outbox
+          where user_id = ron and dedup_key like 'going-out:rejected:deal:' || current_setting('test.gd_dup') || '%') = 2,
+    'second rejection not sent';
+  select * into o from public.notification_outbox
+  where user_id = ron and dedup_key like 'going-out:rejected:deal:' || current_setting('test.gd_dup') || ':%';
+  assert o.body = 'שלישי: יין ב-25 ש״ח: עדיין לא' and o.url = '/going-out/suggestions',
+    format('second rejection wrong: %s', to_jsonb(o));
+  select * into o from public.notification_outbox
+  where user_id = '00000000-0000-0000-0000-0000000000c3' and dedup_key = 'going-out:approved:venue:' || current_setting('test.gv_tal');
+  assert o.body = 'הפינה של טל מופיע עכשיו לכולם' and o.url = '/going-out/suggestions',
+    format('approval after resubmission wrong: %s', to_jsonb(o));
+end;
+$$;
+
+-- Hidden for everyone, shown again by the admin.
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000c3');
+do $$
+begin
+  assert not exists (select 1 from public.venues where id = current_setting('test.gv_new')::bigint), 'a hidden place is visible';
+  assert (select status = 'approved' and household_id is null from public.venues where id = current_setting('test.gv_tal')::bigint),
+    'resubmitted place not approved';
+end;
+$$;
+select public.test_login('00000000-0000-0000-0000-0000000000c4');
+select public.admin_hide_venue(:gv_new, false);
+select public.test_login('00000000-0000-0000-0000-0000000000c3');
+do $$
+begin
+  assert exists (select 1 from public.venues where id = current_setting('test.gv_new')::bigint), 'place not shown again';
+end;
+$$;
+reset role;
+
+-- The suggesting household goes; its approved place stays, without it.
+delete from public.households where id = :'ghid2';
+do $$
+begin
+  assert (select not hidden and not hidden_by_admin from public.venues where id = current_setting('test.gv_new')::bigint),
+    'shown place still marked hidden';
+  assert (select status = 'approved' and suggested_household_id is null
+          from public.venues where id = current_setting('test.gv_tal')::bigint), 'approved place not kept without its household';
 end;
 $$;
 
