@@ -1,10 +1,5 @@
+import type { DealKind, SuggestionStatus, VenueKind } from '@/lib/db-types'
 import { parseISO, WEEKDAY_LABELS, type ISODate } from '@/lib/dates'
-
-// The going-out unions (VenueKind, DealKind, SuggestionStatus in db-types.ts),
-// spelled out here so this tab does not depend on the going-out screens.
-type VenueKind = 'bar' | 'pub' | 'restaurant' | 'cafe' | 'nightclub' | 'other'
-type DealKind = 'happy_hour' | 'special_day' | 'event'
-type SuggestionStatus = 'approved' | 'pending' | 'rejected'
 
 /**
  * A row of admin_list_suggestions() (20261101000100_going_out.sql): a pending
@@ -38,36 +33,6 @@ export interface AdminSuggestion {
   /** For a pending place: an approved one with the same normalized name or within 50 m. */
   similar_venue_id: number | null
   similar_venue_name: string | null
-}
-
-export const VENUE_KIND_LABELS: Record<VenueKind, string> = {
-  bar: 'בר',
-  pub: 'פאב',
-  restaurant: 'מסעדה',
-  cafe: 'בית קפה',
-  nightclub: 'מועדון',
-  other: 'מקום',
-}
-
-export const VENUE_KIND_EMOJI: Record<VenueKind, string> = {
-  bar: '🍸',
-  pub: '🍺',
-  restaurant: '🍽️',
-  cafe: '☕',
-  nightclub: '🎶',
-  other: '📍',
-}
-
-export const DEAL_KIND_LABELS: Record<DealKind, string> = {
-  happy_hour: 'Happy hour',
-  special_day: 'יום מיוחד',
-  event: 'אירוע חד־פעמי',
-}
-
-export const DEAL_KIND_EMOJI: Record<DealKind, string> = {
-  happy_hour: '🍻',
-  special_day: '📅',
-  event: '⭐',
 }
 
 /** "א׳ ג׳ ה׳", or "כל יום" for none or all seven. */

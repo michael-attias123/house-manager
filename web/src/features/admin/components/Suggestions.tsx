@@ -5,14 +5,11 @@ import { Card } from '@/components/ui/Card'
 import { ConfirmButton } from '@/components/ui/ConfirmButton'
 import { EmptyState, ErrorBox, Loading } from '@/components/ui/Feedback'
 import { Field, Input } from '@/components/ui/Field'
+import { dealKind, venueKind } from '@/features/going-out/lib/kinds'
 import { useAdminSuggestions, useApproveVenueAndDeal, useMergeVenue, useReviewDeal, useReviewVenue } from '../hooks'
 import {
-  DEAL_KIND_EMOJI,
-  DEAL_KIND_LABELS,
   dealSchedule,
   formatAgo,
-  VENUE_KIND_EMOJI,
-  VENUE_KIND_LABELS,
   wazeUrl,
   type AdminSuggestion,
 } from '../lib/suggestions'
@@ -87,16 +84,16 @@ function DealSuggestion({ suggestion: s }: { suggestion: AdminSuggestion }) {
     <Card className="space-y-3">
       <div className="space-y-1">
         <p className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
-          <span aria-hidden>{VENUE_KIND_EMOJI[s.venue_kind]}</span>
+          <span aria-hidden>{venueKind(s.venue_kind).emoji}</span>
           <span className="font-medium text-ink">{s.venue_name}</span>
           {venuePending && <Tag tone="warn">מקום חדש</Tag>}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="font-semibold">
-            {s.deal_kind && <span aria-hidden>{DEAL_KIND_EMOJI[s.deal_kind]} </span>}
+            {s.deal_kind && <span aria-hidden>{dealKind(s.deal_kind).emoji} </span>}
             {s.title}
           </h3>
-          {s.deal_kind && <Tag>{DEAL_KIND_LABELS[s.deal_kind]}</Tag>}
+          {s.deal_kind && <Tag>{dealKind(s.deal_kind).label}</Tag>}
         </div>
         <p className="text-sm text-ink-2">
           <Nums text={dealSchedule(s)} />
@@ -134,10 +131,10 @@ function VenueSuggestion({ suggestion: s }: { suggestion: AdminSuggestion }) {
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="font-semibold">
-            <span aria-hidden>{VENUE_KIND_EMOJI[s.venue_kind]} </span>
+            <span aria-hidden>{venueKind(s.venue_kind).emoji} </span>
             {s.venue_name}
           </h3>
-          <Tag>{VENUE_KIND_LABELS[s.venue_kind]}</Tag>
+          <Tag>{venueKind(s.venue_kind).label}</Tag>
           <Tag tone="warn">מקום חדש</Tag>
         </div>
         {s.venue_address && (
