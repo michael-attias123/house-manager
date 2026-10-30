@@ -2,6 +2,7 @@
 // opening-hours reader, so it doesn't know whether a place is open.
 import type { Venue, VenueDeal } from '@/lib/db-types'
 import { distanceKm, venuePoint, type LatLng } from './geo'
+import { isShown } from './kinds'
 import { dealWindow, type DealWindow } from './schedule'
 
 export interface TonightDeal {
@@ -19,11 +20,11 @@ export interface Tonight {
 }
 
 export function tonight(venues: Venue[], deals: VenueDeal[], origin: LatLng, now: Date): Tonight {
-  const byId = new Map(venues.filter((v) => !v.hidden).map((v) => [v.id, v]))
+  const byId = new Map(venues.filter((v) => !v.hidden && isShown(v)).map((v) => [v.id, v]))
   const all: TonightDeal[] = []
   for (const deal of deals) {
     const venue = byId.get(deal.venue_id)
-    if (!venue || deal.status === 'rejected') continue
+    if (!venue || !isShown(deal)) continue
     const point = venuePoint(venue)
     all.push({ venue, deal, window: dealWindow(deal, now), distanceKm: point ? distanceKm(origin, point) : null })
   }

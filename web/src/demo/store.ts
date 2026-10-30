@@ -137,7 +137,8 @@ export function withDefaults(table: string, row: Row): Row {
         id: Math.max(0, ...db.venues.map((v) => Number(v.id))) + 1,
         osm_ref: null, lat: null, lng: null, address: null, opening_hours: null, website: null, phone: null,
         instagram: null, cuisine: null, source: 'community', household_id: null, created_by: currentUserId(),
-        status: 'approved', hidden: false, review_note: null, updated_at: nowIso(),
+        status: 'approved', hidden: false, hidden_by_admin: false, review_note: null, suggested_household_id: null,
+        admin_edited_at: null, updated_at: nowIso(),
       })
       break
     case 'venue_deals':

@@ -4,15 +4,26 @@ import type { Venue, VenueDeal } from '@/lib/db-types'
 import { Button } from '@/components/ui/Button'
 import { EmptyState, ErrorBox, Loading } from '@/components/ui/Feedback'
 import { Fab } from '@/components/ui/Fab'
-import { DealForm } from './components/DealForm'
+import { DealForm } from '@/components/going-out/DealForm'
+import { VenueForm } from '@/components/going-out/VenueForm'
+import { useIsAdmin } from '@/features/admin/hooks'
 import { FilterChips } from './components/FilterChips'
 import { LocationBar } from './components/LocationBar'
 import { VenueCard } from './components/VenueCard'
-import { VenueForm } from './components/VenueForm'
 import { VenueSheet } from './components/VenueSheet'
-import { useAddDeal, useDeals, useLocation, useNow, useUpdateDeal, useVenues } from './hooks'
+import {
+  useAddDeal,
+  useAddVenue,
+  useAdminUpdateDeal,
+  useAdminUpdateVenue,
+  useDeals,
+  useLocation,
+  useNow,
+  useVenues,
+} from './hooks'
 import { draftFromDeal, emptyDraft, type DealDraft, type DealFields } from './lib/draft'
 import { buildSections, NO_FILTERS, type Filters } from './lib/rank'
+import { emptyVenueDraft, venueDraftFrom, type VenueFields } from './lib/venueDraft'
 
 const PAGE = 20
 const SAVED = 'נשמר לבית שלכם ונשלח לאישור. אחרי אישור יופיע לכולם.'
@@ -20,18 +31,23 @@ const SAVED = 'נשמר לבית שלכם ונשלח לאישור. אחרי אי
 /** What is open on top of the list; one sheet at a time. */
 type Panel =
   | { type: 'venue'; id: number }
-  /** `back`: the place page to return to. */
+  /** `back`: the place page to return to. `deal`: an admin editing it. */
   | { type: 'deal'; draft: DealDraft; deal?: VenueDeal; back?: number }
   /** `draft`: the deal form it was opened from, to continue with. */
   | { type: 'new-venue'; name: string; draft: DealDraft | null }
+  /** An admin editing the place; back to its page afterwards. */
+  | { type: 'edit-venue'; venue: Venue }
 
 export function GoingOutPage() {
   const venues = useVenues()
   const deals = useDeals()
   const location = useLocation()
   const now = useNow()
+  const isAdmin = useIsAdmin().data === true
   const addDeal = useAddDeal()
-  const updateDeal = useUpdateDeal()
+  const addVenue = useAddVenue()
+  const adminUpdateDeal = useAdminUpdateDeal()
+  const adminUpdateVenue = useAdminUpdateVenue()
   const [filters, setFilters] = useState<Filters>(NO_FILTERS)
   const [shown, setShown] = useState(PAGE)
   const [panel, setPanel] = useState<Panel | null>(null)
@@ -65,21 +81,27 @@ export function GoingOutPage() {
     () => setPanel((p) => (p?.type === 'new-venue' && p.draft ? { type: 'deal', draft: p.draft } : null)),
     [],
   )
+  const closeEditVenue = useCallback(
+    () => setPanel((p) => (p?.type === 'edit-venue' ? { type: 'venue', id: p.venue.id } : null)),
+    [],
+  )
   const newDeal = (venueId: number | null = null) =>
     setPanel({ type: 'deal', draft: emptyDraft(venueId), back: venueId ?? undefined })
   const newVenue = () => setPanel({ type: 'new-venue', name: '', draft: null })
 
   const submitDeal = (fields: DealFields) => {
     if (panel?.type !== 'deal') return
-    const fail = (err: Error) => setNotice(`השמירה נכשלה: ${err.message}`)
+    const back = () => setPanel(panel.back != null ? { type: 'venue', id: panel.back } : null)
+    // An admin's edit: the form waits, and shows a failure itself.
     if (panel.deal) {
-      updateDeal.mutate({ id: panel.deal.id, fields }, { onError: fail })
-      setNotice('השינויים נשמרו')
-    } else {
-      addDeal.mutate({ ...fields, id: crypto.randomUUID() }, { onError: fail })
-      setNotice(SAVED)
+      return adminUpdateDeal.mutateAsync({ id: panel.deal.id, fields }).then(() => {
+        setNotice('השינויים נשמרו')
+        back()
+      })
     }
-    setPanel(panel.back != null ? { type: 'venue', id: panel.back } : null)
+    addDeal.mutate({ ...fields, id: crypto.randomUUID() }, { onError: (err) => setNotice(`השמירה נכשלה: ${err.message}`) })
+    setNotice(SAVED)
+    back()
   }
   /** On to a deal at this place; back to its page afterwards. */
   const continueWith = (venue: Venue, draft: DealDraft | null) =>
@@ -211,34 +233,57 @@ export function GoingOutPage() {
           item={open}
           deals={dealList.filter((d) => d.venue_id === open.venue.id)}
           now={now}
+          admin={isAdmin}
           onClose={close}
           onAddDeal={() => newDeal(open.venue.id)}
           onEditDeal={(deal) => setPanel({ type: 'deal', draft: draftFromDeal(deal), deal, back: deal.venue_id })}
+          onEditVenue={() => setPanel({ type: 'edit-venue', venue: open.venue })}
+          onHidden={() => {
+            setPanel(null)
+            setNotice('המקום הוסתר מהרשימה של כולם')
+          }}
         />
       )}
       {panel?.type === 'deal' && (
         <DealForm
           // A new form for each deal, so its fields start from the draft.
           key={panel.deal?.id ?? `new-${panel.draft.venueId}`}
+          mode={panel.deal ? 'admin' : 'create'}
           venues={venueList}
           initial={panel.draft}
-          deal={panel.deal}
           onClose={closeDeal}
           onSubmit={submitDeal}
-          onAddVenue={(draft, name) => setPanel({ type: 'new-venue', name, draft })}
+          onAddVenue={panel.deal ? undefined : (draft, name) => setPanel({ type: 'new-venue', name, draft })}
         />
       )}
       {panel?.type === 'new-venue' && (
         <VenueForm
+          mode="create"
           venues={venueList}
           location={location}
-          initialName={panel.name}
+          initial={emptyVenueDraft(panel.name)}
           onClose={closeNewVenue}
-          onSaved={(venue) => {
+          onSubmit={async (fields: VenueFields) => {
+            const venue = await addVenue.mutateAsync(fields)
             setNotice('המקום נשמר לבית שלכם ונשלח לאישור. אחרי אישור יופיע לכולם.')
             continueWith(venue, panel.draft)
           }}
           onPick={(venue) => continueWith(venue, panel.draft)}
+        />
+      )}
+      {panel?.type === 'edit-venue' && (
+        <VenueForm
+          key={panel.venue.id}
+          mode="admin"
+          venues={venueList}
+          location={location}
+          initial={venueDraftFrom(panel.venue)}
+          onClose={closeEditVenue}
+          onSubmit={async (fields: VenueFields) => {
+            await adminUpdateVenue.mutateAsync({ id: panel.venue.id, fields })
+            setNotice('השינויים נשמרו')
+            closeEditVenue()
+          }}
         />
       )}
     </div>

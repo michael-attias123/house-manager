@@ -351,17 +351,28 @@ export function createSeed(now: Date = new Date()): Db {
     db.venues.push({
       id: i + 1, osm_ref: `demo:node/${i + 1}`, name, kind, lat, lng, address: null, opening_hours: hours,
       website: null, phone: null, instagram: null, cuisine: null, source: 'osm', household_id: null, created_by: null,
-      status: 'approved', hidden: false, review_note: null, created_at: at(daysAgo(40), '05:40'),
-      updated_at: at(daysAgo(3), '05:40'), ...extra,
+      status: 'approved', hidden: false, hidden_by_admin: false, review_note: null, suggested_household_id: null,
+      admin_edited_at: null, created_at: at(daysAgo(40), '05:40'), updated_at: at(daysAgo(3), '05:40'), ...extra,
     })
   })
-  // A place יהלי added: no location, waiting for approval.
-  db.venues.push({
-    id: 13, osm_ref: null, name: 'בר הגג החדש', kind: 'bar', lat: null, lng: null, address: 'רחוב הדוגמה 12',
-    opening_hours: null, website: null, phone: null, instagram: null, cuisine: null, source: 'community',
-    household_id: HOUSEHOLD, created_by: YAHALI, status: 'pending', hidden: false, review_note: null,
-    created_at: at(daysAgo(1), '22:10'), updated_at: at(daysAgo(1), '22:10'),
-  })
+  // Places the household added: one waiting for approval (יהלי's, no
+  // location), one approved and in everyone's list since (מיכאל's).
+  db.venues.push(
+    {
+      id: 13, osm_ref: null, name: 'בר הגג החדש', kind: 'bar', lat: null, lng: null, address: 'רחוב הדוגמה 12',
+      opening_hours: null, website: null, phone: null, instagram: null, cuisine: null, source: 'community',
+      household_id: HOUSEHOLD, created_by: YAHALI, status: 'pending', hidden: false, hidden_by_admin: false,
+      review_note: null, suggested_household_id: HOUSEHOLD, admin_edited_at: null,
+      created_at: at(daysAgo(1), '22:10'), updated_at: at(daysAgo(1), '22:10'),
+    },
+    {
+      id: 14, osm_ref: null, name: 'מרפסת הסמטה', kind: 'cafe', lat: 31.2425, lng: 34.7889, address: 'סמטת הדוגמה 3',
+      opening_hours: null, website: null, phone: null, instagram: 'demo.alley', cuisine: null, source: 'community',
+      household_id: null, created_by: MICHAEL, status: 'approved', hidden: false, hidden_by_admin: false,
+      review_note: null, suggested_household_id: HOUSEHOLD, admin_edited_at: null,
+      created_at: at(daysAgo(25), '18:00'), updated_at: at(daysAgo(18), '09:00'),
+    },
+  )
   const venueDeal = (venueId: number, title: string, kind: string, weekdays: number[], hours: [string, string] | null, extra: Row = {}): Row => ({
     id: id(), venue_id: venueId, household_id: null, created_by: null, title, kind, weekdays,
     starts_at: hours ? `${hours[0]}:00` : null, ends_at: hours ? `${hours[1]}:00` : null, valid_from: null,
@@ -370,6 +381,7 @@ export function createSeed(now: Date = new Date()): Db {
   })
   const jazzNight = addDays(today, 2)
   db.venue_deals.push(
+    // מיכאל's suggestion, approved: in everyone's list, and under "אושרו" in ההצעות שלי.
     venueDeal(1, 'יין ללא תחתית', 'special_day', [2], ['19:00', '23:00'], {
       note: 'בקנייה של מנה עיקרית', household_id: HOUSEHOLD, created_by: MICHAEL,
     }),
@@ -382,7 +394,8 @@ export function createSeed(now: Date = new Date()): Db {
     venueDeal(8, 'ערב ג׳אז', 'event', [], ['21:00', '23:30'], {
       valid_from: jazzNight, valid_until: jazzNight, note: 'כניסה חופשית', created_at: at(daysAgo(4)),
     }),
-    // יהלי's suggestion, seen only in this household until an admin approves it.
+    // יהלי's suggestions: one seen only in this household until an admin
+    // approves it, one an admin rejected (with a reply; only in ההצעות שלי).
     venueDeal(10, 'קוקטייל הבית 1+1', 'happy_hour', [0, 1, 2, 3, 4], ['21:00', '22:30'], {
       household_id: HOUSEHOLD, created_by: YAHALI, status: 'pending', reviewed_by: null, reviewed_at: null,
       last_confirmed_at: at(daysAgo(1), '20:30'), created_at: at(daysAgo(1), '20:30'),

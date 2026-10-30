@@ -3,9 +3,26 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Venue, VenueDeal } from '@/lib/db-types'
 import { useRealtimeInvalidate } from '@/lib/realtime'
 import { useHousehold } from '@/features/household/HouseholdProvider'
-import { addDeal, addVenue, confirmDeal, deleteDeal, fetchDeals, fetchVenues, updateDeal, type NewVenue } from './api'
+import { adminKeys } from '@/features/admin/hooks'
+import {
+  addDeal,
+  addVenue,
+  adminDeleteDeal,
+  adminHideVenue,
+  adminUpdateDeal,
+  adminUpdateVenue,
+  confirmDeal,
+  deleteDeal,
+  deleteVenue,
+  fetchDeals,
+  fetchMySuggestions,
+  fetchVenues,
+  updateDeal,
+  updateVenue,
+} from './api'
 import type { DealFields } from './lib/draft'
 import { BEER_SHEVA, inBeerSheva, type LatLng } from './lib/geo'
+import { memberVenueFields, type VenueFields } from './lib/venueDraft'
 
 const DEMO = import.meta.env.VITE_DEMO === '1'
 
@@ -13,6 +30,19 @@ const DEMO = import.meta.env.VITE_DEMO === '1'
 export const goingOutKeys = {
   venues: (householdId: string) => ['venues', householdId] as const,
   deals: (householdId: string) => ['venue-deals', householdId] as const,
+  /** "ההצעות שלי". */
+  mine: (householdId: string) => ['my-suggestions', householdId] as const,
+}
+
+/**
+ * After any edit: the screens' places and deals, "ההצעות שלי", and the
+ * admin's list of suggestions (by prefix, whatever the household).
+ */
+const EDITED = [['venues'], ['venue-deals'], ['my-suggestions'], adminKeys.suggestions] as const
+
+function useInvalidateGoingOut() {
+  const queryClient = useQueryClient()
+  return () => Promise.all(EDITED.map((queryKey) => queryClient.invalidateQueries({ queryKey })))
 }
 
 export function useVenues() {
@@ -35,6 +65,17 @@ export function useDeals() {
   })
 }
 
+/** The household's suggestions, with the admin's replies; reviews arrive live. */
+export function useMySuggestions() {
+  const { household } = useHousehold()
+  useRealtimeInvalidate('venue_deals', household.id, [goingOutKeys.mine(household.id)])
+  return useQuery({
+    queryKey: goingOutKeys.mine(household.id),
+    queryFn: () => fetchMySuggestions(household.id),
+    staleTime: 60_000,
+  })
+}
+
 /** Optimistically applies `apply` to the cached deals; rolls back on error. */
 function useOptimisticDeals<TVars>(
   mutationFn: (vars: TVars) => Promise<void>,
@@ -42,6 +83,7 @@ function useOptimisticDeals<TVars>(
 ) {
   const { household } = useHousehold()
   const queryClient = useQueryClient()
+  const invalidate = useInvalidateGoingOut()
   const key = goingOutKeys.deals(household.id)
   return useMutation({
     mutationFn,
@@ -54,7 +96,7 @@ function useOptimisticDeals<TVars>(
     onError: (_err, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(key, context.previous)
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: key }),
+    onSettled: invalidate,
   })
 }
 
@@ -107,15 +149,49 @@ export function useConfirmDeal() {
 export function useAddVenue() {
   const { household, user } = useHousehold()
   const queryClient = useQueryClient()
+  const invalidate = useInvalidateGoingOut()
   const key = goingOutKeys.venues(household.id)
   return useMutation({
-    mutationFn: (venue: Omit<NewVenue, 'household_id' | 'created_by'>) =>
-      addVenue({ ...venue, household_id: household.id, created_by: user.id }),
+    mutationFn: (fields: VenueFields) =>
+      addVenue({ ...memberVenueFields(fields), household_id: household.id, created_by: user.id }),
     onSuccess: (venue: Venue) => {
       queryClient.setQueryData<Venue[]>(key, (venues = []) => [...venues, venue])
-      void queryClient.invalidateQueries({ queryKey: key })
+      void invalidate()
     },
   })
+}
+
+/** A mutation that refreshes everything going-out shows once it's done (or failed). */
+function useEdit<TVars>(mutationFn: (vars: TVars) => Promise<void>) {
+  const invalidate = useInvalidateGoingOut()
+  return useMutation({ mutationFn, onSettled: invalidate })
+}
+
+/** The household's own suggested place (not approved). */
+export function useUpdateVenue() {
+  return useEdit(({ id, fields }: { id: number; fields: VenueFields }) => updateVenue(id, fields))
+}
+
+export function useDeleteVenue() {
+  return useEdit((id: number) => deleteVenue(id))
+}
+
+// Admin only (useIsAdmin decides what to show; the server checks again).
+
+export function useAdminUpdateDeal() {
+  return useEdit(({ id, fields }: { id: string; fields: DealFields }) => adminUpdateDeal(id, fields))
+}
+
+export function useAdminUpdateVenue() {
+  return useEdit(({ id, fields }: { id: number; fields: VenueFields }) => adminUpdateVenue(id, fields))
+}
+
+export function useAdminDeleteDeal() {
+  return useEdit((id: string) => adminDeleteDeal(id))
+}
+
+export function useAdminHideVenue() {
+  return useEdit(({ id, hidden }: { id: number; hidden: boolean }) => adminHideVenue(id, hidden))
 }
 
 /** The time, ticking every minute, so "now" and "later" move on by themselves. */

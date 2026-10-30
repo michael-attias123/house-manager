@@ -1,8 +1,8 @@
 import { dealKind } from '../lib/kinds'
 import type { DealView } from '../lib/rank'
-import { DealWhen, StatusTag } from './Labels'
+import { DealWhen } from './Labels'
 
-/** 🍻 Happy hour · עד 21:00, with the household's "ממתין לאישור" / "לא אושר". */
+/** 🍻 Happy hour · עד 21:00. */
 export function DealChip({ view }: { view: DealView }) {
   const { deal, window } = view
   const on = window.state === 'active'
@@ -13,7 +13,6 @@ export function DealChip({ view }: { view: DealView }) {
       <span className={on ? 'shrink-0 text-brand-700 dark:text-brand-200' : 'shrink-0 text-ink-3'}>
         · <DealWhen deal={deal} window={window} />
       </span>
-      <StatusTag status={deal.status} className="ms-auto" />
     </span>
   )
 }

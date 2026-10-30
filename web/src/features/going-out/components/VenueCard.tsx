@@ -1,7 +1,7 @@
 import { venueKind } from '../lib/kinds'
 import type { VenueItem } from '../lib/rank'
 import { DealChip } from './DealChip'
-import { Distance, OpenLabel, openTone, StatusTag } from './Labels'
+import { Distance, OpenLabel, openTone } from './Labels'
 
 const SHOWN_DEALS = 2
 
@@ -20,10 +20,7 @@ export function VenueCard({ item, now, onOpen }: { item: VenueItem; now: Date; o
           {kind.emoji}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate font-semibold">{venue.name}</span>
-            <StatusTag status={venue.status} />
-          </div>
+          <p className="truncate font-semibold">{venue.name}</p>
           <p className="text-xs text-ink-2">
             {kind.label} · <Distance km={item.distanceKm} />
           </p>

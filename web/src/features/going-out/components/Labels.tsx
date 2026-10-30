@@ -1,9 +1,7 @@
-import type { SuggestionStatus, VenueDeal } from '@/lib/db-types'
-import { cn } from '@/lib/cn'
+import type { VenueDeal } from '@/lib/db-types'
 import { formatDay, WEEKDAY_LABELS } from '@/lib/dates'
 import { distanceParts } from '../lib/geo'
 import type { OpenState } from '../lib/hours'
-import { statusTag } from '../lib/kinds'
 import { daysLabel, jerusalemClock, type DealWindow } from '../lib/schedule'
 
 /** "350 מ׳", or "מיקום לא ידוע" for a place without a location. */
@@ -14,25 +12,6 @@ export function Distance({ km }: { km: number | null }) {
     <>
       <span className="num">{value}</span> {unit}
     </>
-  )
-}
-
-/** "ממתין לאישור" / "לא אושר" on the household's own suggestions. */
-export function StatusTag({ status, className }: { status: SuggestionStatus; className?: string }) {
-  const tag = statusTag(status)
-  if (!tag) return null
-  return (
-    <span
-      className={cn(
-        'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium',
-        status === 'pending'
-          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-          : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300',
-        className,
-      )}
-    >
-      {tag}
-    </span>
   )
 }
 

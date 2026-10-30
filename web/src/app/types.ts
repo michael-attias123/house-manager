@@ -14,6 +14,11 @@ export interface FeatureNav {
   label?: string
 }
 
+/** A route's `handle`: a page title other than the feature's (the header shows the deepest one). */
+export interface RouteHandle {
+  title?: string
+}
+
 /**
  * Everything the shell needs to know about a feature. Each feature folder
  * exports one of these from its index.ts and is listed in app/features.ts.

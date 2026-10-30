@@ -1,72 +1,34 @@
-import { dealSchedule, formatAgo, formatHours, formatValidity, formatWeekdays } from './suggestions'
+import { draftFromDeal, draftToFields } from '@/features/going-out/lib/draft'
+import { venueFields } from '@/features/going-out/lib/venueDraft'
+import { suggestionDealFields, suggestionVenueDraft, type AdminSuggestion } from './suggestions'
 
-describe('formatWeekdays', () => {
-  it('lists days in week order, as Hebrew letters', () => {
-    expect(formatWeekdays([4, 0, 2])).toBe('א׳ ג׳ ה׳')
-    expect(formatWeekdays([6])).toBe('ש׳')
-    expect(formatWeekdays([2, 2])).toBe('ג׳')
-  })
+const row: AdminSuggestion = {
+  item_type: 'deal', deal_id: 'd1', venue_id: 13, venue_name: 'בר הגג החדש', venue_kind: 'bar', venue_status: 'pending',
+  venue_lat: 31.25, venue_lng: 34.79, venue_address: 'רחוב הדוגמה 12', title: 'קוקטייל 1+1', deal_kind: 'special_day',
+  weekdays: [2, 4], starts_at: '21:00:00', ends_at: '01:00:00', valid_from: null, valid_until: '2026-12-31',
+  note: 'בבר בלבד', household_id: 'h', household_name: 'הבית שלנו', created_at: '2026-10-29T20:00:00Z',
+  similar_venue_id: null, similar_venue_name: null, venue_opening_hours: 'Su-Th 18:00-02:00', venue_website: null,
+  venue_phone: '08-0000000', venue_instagram: 'demo.roof',
+}
 
-  it('says every day for none or all seven', () => {
-    expect(formatWeekdays([])).toBe('כל יום')
-    expect(formatWeekdays(null)).toBe('כל יום')
-    expect(formatWeekdays([0, 1, 2, 3, 4, 5, 6])).toBe('כל יום')
-  })
-})
-
-describe('formatHours', () => {
-  it('shows a range without seconds', () => {
-    expect(formatHours('19:00:00', '23:00:00')).toBe('19:00–23:00')
-  })
-
-  it('marks a deal that crosses midnight', () => {
-    expect(formatHours('22:00:00', '02:00:00')).toBe('22:00–02:00 עד למחרת')
-  })
-
-  it('falls back to the opening hours, or one end', () => {
-    expect(formatHours(null, null)).toBe('כל שעות הפתיחה')
-    expect(formatHours('17:30:00', null)).toBe('מ־17:30')
-    expect(formatHours(null, '21:00:00')).toBe('עד 21:00')
+describe('suggestionDealFields', () => {
+  it('gives the deal form the row as it is, and saving it unchanged changes nothing', () => {
+    const fields = suggestionDealFields(row)
+    expect(fields).toEqual({
+      venue_id: 13, title: 'קוקטייל 1+1', kind: 'special_day', weekdays: [2, 4], starts_at: '21:00:00',
+      ends_at: '01:00:00', valid_from: null, valid_until: '2026-12-31', note: 'בבר בלבד',
+    })
+    expect(draftToFields(draftFromDeal(fields))).toEqual({ ...fields, starts_at: '21:00', ends_at: '01:00' })
   })
 })
 
-describe('formatValidity', () => {
-  it('formats one day, a range and open ends', () => {
-    expect(formatValidity('2026-11-05', '2026-11-05')).toBe('ב־5.11.2026')
-    expect(formatValidity('2026-11-01', '2026-11-30')).toBe('1.11.2026–30.11.2026')
-    expect(formatValidity('2026-11-01', null)).toBe('מ־1.11.2026')
-    expect(formatValidity(null, '2026-12-31')).toBe('עד 31.12.2026')
-    expect(formatValidity(null, null)).toBeNull()
-  })
-})
-
-describe('dealSchedule', () => {
-  const deal = { deal_kind: 'special_day' as const, weekdays: [2], starts_at: '19:00:00', ends_at: '23:00:00', valid_from: null, valid_until: null }
-
-  it('joins days, hours and dates', () => {
-    expect(dealSchedule(deal)).toBe('ג׳ · 19:00–23:00')
-    expect(dealSchedule({ ...deal, weekdays: [], valid_until: '2026-12-31' })).toBe('כל יום · 19:00–23:00 · עד 31.12.2026')
-  })
-
-  it('leaves out the days of a one-off event', () => {
-    expect(
-      dealSchedule({ deal_kind: 'event', weekdays: [], starts_at: '21:00:00', ends_at: '01:00:00', valid_from: '2026-11-05', valid_until: '2026-11-05' }),
-    ).toBe('21:00–01:00 עד למחרת · ב־5.11.2026')
-  })
-})
-
-describe('formatAgo', () => {
-  const now = new Date('2026-10-30T20:00:00Z')
-  const ago = (ms: number) => formatAgo(new Date(now.getTime() - ms).toISOString(), now)
-
-  it('counts minutes, hours and days', () => {
-    expect(ago(20_000)).toBe('לפני רגע')
-    expect(ago(-60_000)).toBe('לפני רגע')
-    expect(ago(60_000)).toBe('לפני דקה')
-    expect(ago(5 * 60_000)).toBe('לפני 5 דקות')
-    expect(ago(60 * 60_000)).toBe('לפני שעה')
-    expect(ago(2.5 * 3_600_000)).toBe('לפני 2 שעות')
-    expect(ago(30 * 3_600_000)).toBe('לפני יום')
-    expect(ago(3 * 86_400_000)).toBe('לפני 3 ימים')
+describe('suggestionVenueDraft', () => {
+  it('keeps the place details the card does not show', () => {
+    const draft = suggestionVenueDraft({ ...row, item_type: 'venue', deal_id: null })
+    expect(venueFields(draft, draft.point)).toEqual({
+      name: 'בר הגג החדש', kind: 'bar', lat: 31.25, lng: 34.79, address: 'רחוב הדוגמה 12', instagram: 'demo.roof',
+      website: null, phone: '08-0000000', opening_hours: 'Su-Th 18:00-02:00',
+    })
+    expect(suggestionVenueDraft({ ...row, venue_lat: null, venue_lng: null }).point).toBeNull()
   })
 })

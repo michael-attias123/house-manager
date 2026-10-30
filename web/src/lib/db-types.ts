@@ -112,8 +112,15 @@ export interface Venue {
   household_id: string | null
   created_by: string | null
   status: SuggestionStatus
+  /** Not in the catalog: gone from OSM, or hidden by an admin. */
   hidden: boolean
+  /** Hidden with admin_hide_venue; the weekly ingest leaves it hidden. */
+  hidden_by_admin: boolean
   review_note: string | null
+  /** The household that added it; kept after approval (household_id is cleared then). */
+  suggested_household_id: string | null
+  /** Set by admin_update_venue; the ingest then keeps the admin's details. */
+  admin_edited_at: string | null
   created_at: string
   updated_at: string
 }

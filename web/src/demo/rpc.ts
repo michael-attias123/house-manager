@@ -232,6 +232,27 @@ function checkDeal(d: Row) {
   if (d.household_id == null && d.status !== 'approved') throw new Error('new row for relation "venue_deals" violates check constraint')
 }
 
+const VENUE_KINDS = ['bar', 'pub', 'restaurant', 'cafe', 'nightclub', 'other']
+const DEAL_KINDS = ['happy_hour', 'special_day', 'event']
+const minutes = (t: unknown) => (t == null ? null : Number(String(t).slice(0, 2)) * 60 + Number(String(t).slice(3, 5)))
+
+/** The tables' check constraints on what an admin edit may write. */
+function checkDealContent(d: Row) {
+  const title = String(d.title ?? '')
+  const ok =
+    title.length >= 2 && title.length <= 60 && DEAL_KINDS.includes(d.kind) &&
+    (d.weekdays ?? []).every((w: number) => Number.isInteger(w) && w >= 0 && w <= 6) &&
+    (d.starts_at == null || d.ends_at == null || minutes(d.starts_at) !== minutes(d.ends_at)) &&
+    (d.valid_from == null || d.valid_until == null || d.valid_until >= d.valid_from) &&
+    (d.note == null || String(d.note).length <= 200)
+  if (!ok) throw new Error('new row for relation "venue_deals" violates check constraint')
+}
+
+function checkVenueContent(v: Row) {
+  const ok = String(v.name ?? '').trim() !== '' && VENUE_KINDS.includes(v.kind) && (v.lat == null) === (v.lng == null)
+  if (!ok) throw new Error('new row for relation "venues" violates check constraint')
+}
+
 /** One admin_list_suggestions() row, in its column order. */
 function suggestionRow(itemType: 'deal' | 'venue', venue: Row, deal: Row | null): Row {
   const similar = venue.status === 'pending' ? similarVenue(venue) : null
@@ -246,6 +267,8 @@ function suggestionRow(itemType: 'deal' | 'venue', venue: Row, deal: Row | null)
     // venues has no created_at: a suggested place was last touched when it was added.
     created_at: deal ? deal.created_at : (venue.updated_at ?? venue.created_at),
     similar_venue_id: similar?.id ?? null, similar_venue_name: similar?.name ?? null,
+    venue_opening_hours: venue.opening_hours ?? null, venue_website: venue.website ?? null,
+    venue_phone: venue.phone ?? null, venue_instagram: venue.instagram ?? null,
   }
 }
 
@@ -587,6 +610,8 @@ export const RPCS: Record<string, (args: Args) => unknown> = {
     if (!db.households.some((h) => h.id === householdId)) throw new Error('not found')
     // The before-delete trigger: approved deals belong to everyone, so they stay.
     for (const d of venueDeals()) if (d.household_id === householdId && d.status === 'approved') d.household_id = null
+    // venues.suggested_household_id: on delete set null.
+    for (const v of venues()) if (v.suggested_household_id === householdId) v.suggested_household_id = null
     // on delete cascade: every row that belongs to the household goes with it.
     db.households = db.households.filter((h) => h.id !== householdId)
     for (const table of Object.keys(db)) db[table] = db[table].filter((r) => r.household_id !== householdId)
@@ -679,6 +704,55 @@ export const RPCS: Record<string, (args: Args) => unknown> = {
     if (into.status !== 'approved') throw new Error('venue not approved')
     for (const d of venueDeals()) if (d.venue_id === from.id) d.venue_id = into.id
     db.venues = venues().filter((v) => v !== from)
+    return null
+  },
+
+  // An admin's edit of any deal, in any status; the status stays as it is.
+  admin_update_deal: ({ p_id, p_title, p_kind, p_weekdays, p_starts_at, p_ends_at, p_valid_from, p_valid_until, p_note }) => {
+    requireAdmin()
+    const deal = venueDeals().find((d) => d.id === p_id)
+    if (!deal) throw new Error('not found')
+    const next = {
+      title: str(p_title)?.trim() ?? '', kind: p_kind, weekdays: [...((p_weekdays as number[] | null) ?? [])],
+      starts_at: str(p_starts_at), ends_at: str(p_ends_at), valid_from: str(p_valid_from), valid_until: str(p_valid_until),
+      note: str(p_note)?.trim() || null,
+    }
+    checkDealContent({ ...deal, ...next })
+    Object.assign(deal, next)
+    return null
+  },
+
+  // Any place, in any status; marked, so the weekly ingest keeps the admin's details.
+  admin_update_venue: ({ p_id, p_name, p_kind, p_address, p_opening_hours, p_website, p_phone, p_instagram, p_lat, p_lng }) => {
+    requireAdmin()
+    const venue = venues().find((v) => v.id === Number(p_id))
+    if (!venue) throw new Error('not found')
+    const text = (v: unknown) => str(v)?.trim() || null
+    const next = {
+      name: str(p_name)?.trim() ?? '', kind: p_kind, address: text(p_address), opening_hours: text(p_opening_hours),
+      website: text(p_website), phone: text(p_phone), instagram: text(p_instagram),
+      lat: p_lat == null ? null : Number(p_lat), lng: p_lng == null ? null : Number(p_lng),
+    }
+    checkVenueContent({ ...venue, ...next })
+    const now = new Date().toISOString()
+    Object.assign(venue, next, { admin_edited_at: now, updated_at: now })
+    return null
+  },
+
+  admin_delete_deal: ({ p_id }) => {
+    requireAdmin()
+    if (!venueDeals().some((d) => d.id === p_id)) throw new Error('not found')
+    db.venue_deals = venueDeals().filter((d) => d.id !== p_id)
+    return null
+  },
+
+  // Out of every list (and back); hidden_by_admin keeps the ingest from showing it again.
+  admin_hide_venue: ({ p_id, p_hidden }) => {
+    requireAdmin()
+    const venue = venues().find((v) => v.id === Number(p_id))
+    if (!venue) throw new Error('not found')
+    const hidden = Boolean(p_hidden)
+    Object.assign(venue, { hidden, hidden_by_admin: hidden, updated_at: new Date().toISOString() })
     return null
   },
 }

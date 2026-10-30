@@ -19,6 +19,9 @@ export interface DealDraft {
   note: string
 }
 
+/** The deal and place forms: a new suggestion, the household's own one, or any one by an admin. */
+export type FormMode = 'create' | 'edit' | 'admin'
+
 export const TITLE_MIN = 2
 export const TITLE_MAX = 60
 export const NOTE_MAX = 200
@@ -27,7 +30,8 @@ export function emptyDraft(venueId: number | null = null): DealDraft {
   return { venueId, title: '', kind: 'happy_hour', weekdays: [], allHours: false, startsAt: '', endsAt: '', date: '', note: '' }
 }
 
-export function draftFromDeal(deal: VenueDeal): DealDraft {
+/** A saved deal (or its columns) back in the form. */
+export function draftFromDeal(deal: DealFields): DealDraft {
   return {
     venueId: deal.venue_id,
     title: deal.title,
@@ -93,5 +97,20 @@ export function draftToFields(d: DealDraft): DealFields {
     valid_from: event ? d.date || null : null,
     valid_until: d.date || null,
     note: d.note.trim() || null,
+  }
+}
+
+/** admin_update_deal's arguments: the deal's columns but its place, which stays. */
+export function adminDealArgs(id: string, f: DealFields) {
+  return {
+    p_id: id,
+    p_title: f.title,
+    p_kind: f.kind,
+    p_weekdays: f.weekdays,
+    p_starts_at: f.starts_at,
+    p_ends_at: f.ends_at,
+    p_valid_from: f.valid_from,
+    p_valid_until: f.valid_until,
+    p_note: f.note,
   }
 }

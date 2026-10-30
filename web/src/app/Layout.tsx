@@ -1,20 +1,25 @@
 import { Suspense } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useMatches } from 'react-router-dom'
 import { Home, MoreHorizontal } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Loading } from '@/components/ui/Feedback'
 import { useHousehold } from '@/features/household/HouseholdProvider'
 import { featureForPath, moreFeatures, primaryNav } from './features'
+import type { RouteHandle } from './types'
 
 const NAV = primaryNav()
 
 export function Layout() {
   const { pathname } = useLocation()
   const { household } = useHousehold()
+  const matches = useMatches()
   const feature = featureForPath(pathname)
   const group = NAV.find((n) => n.tabs && n.paths.includes(feature?.path ?? ''))
-  const title = pathname === '/' ? household.name : pathname === '/more' ? 'עוד' : (feature?.title ?? '')
+  // A page of a feature may name itself (route handle), e.g. "ההצעות שלי" under לאן יוצאים.
+  const routeTitle = matches.map((m) => (m.handle as RouteHandle | undefined)?.title).findLast(Boolean)
+  const title =
+    pathname === '/' ? household.name : pathname === '/more' ? 'עוד' : (routeTitle ?? feature?.title ?? '')
   // A page without a nav entry (admin) is reached from "עוד", so it highlights that.
   const inMore =
     pathname === '/more' || moreFeatures().some((f) => f.path === feature?.path) || (feature != null && !feature.nav)
