@@ -6,8 +6,10 @@ import { useHousehold } from '@/features/household/HouseholdProvider'
 import { adminKeys } from '@/features/admin/hooks'
 import {
   addDeal,
+  addDeals,
   addFavorite,
   addVenue,
+  adminAddDeals,
   adminDeleteDeal,
   adminHideVenue,
   adminUpdateDeal,
@@ -137,6 +139,22 @@ function useOptimisticDeals<TVars>(
     },
     onError: (_err, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(key, context.previous)
+    },
+    onSettled: invalidate,
+  })
+}
+
+/**
+ * The AI import's deals: an admin's go in approved for everyone; anyone
+ * else's as the household's suggestions, like the deal form's.
+ */
+export function useImportDeals() {
+  const { household, user } = useHousehold()
+  const invalidate = useInvalidateGoingOut()
+  return useMutation({
+    mutationFn: async ({ deals, approve }: { deals: DealFields[]; approve: boolean }) => {
+      if (approve) await adminAddDeals(deals)
+      else await addDeals(deals.map((d) => ({ ...d, id: crypto.randomUUID(), household_id: household.id, created_by: user.id })))
     },
     onSettled: invalidate,
   })

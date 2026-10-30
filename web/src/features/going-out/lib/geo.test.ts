@@ -1,4 +1,4 @@
-import { BEER_SHEVA, distanceKm, formatDistance, inBeerSheva, venuePoint } from './geo'
+import { BEER_SHEVA, distanceKm, distanceParts, inBeerSheva, venuePoint } from './geo'
 
 describe('distanceKm', () => {
   it('measures a degree of latitude', () => {
@@ -26,14 +26,14 @@ describe('inBeerSheva', () => {
   })
 })
 
-describe('formatDistance', () => {
+describe('distanceParts', () => {
   it('uses meters under a kilometer and one decimal under ten', () => {
-    expect(formatDistance(0.347)).toBe('350 מ׳')
-    expect(formatDistance(0.001)).toBe('10 מ׳')
-    expect(formatDistance(0.996)).toBe('1.0 ק״מ')
-    expect(formatDistance(1.24)).toBe('1.2 ק״מ')
-    expect(formatDistance(9.96)).toBe('10 ק״מ')
-    expect(formatDistance(23.4)).toBe('23 ק״מ')
+    expect(distanceParts(0.347)).toEqual(['350', 'מ׳'])
+    expect(distanceParts(0.001)).toEqual(['10', 'מ׳'])
+    expect(distanceParts(0.996)).toEqual(['1.0', 'ק״מ'])
+    expect(distanceParts(1.24)).toEqual(['1.2', 'ק״מ'])
+    expect(distanceParts(9.96)).toEqual(['10', 'ק״מ'])
+    expect(distanceParts(23.4)).toEqual(['23', 'ק״מ'])
   })
 })
 

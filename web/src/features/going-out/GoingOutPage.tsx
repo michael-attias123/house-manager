@@ -8,6 +8,7 @@ import { DealForm } from '@/components/going-out/DealForm'
 import { VenueForm } from '@/components/going-out/VenueForm'
 import { useIsAdmin } from '@/features/admin/hooks'
 import { FilterChips } from './components/FilterChips'
+import { ImportDealsSheet } from './components/ImportDealsSheet'
 import { LocationBar } from './components/LocationBar'
 import { SearchBar } from './components/SearchBar'
 import { VenueCard } from './components/VenueCard'
@@ -30,6 +31,7 @@ import { emptyVenueDraft, venueDraftFrom, type VenueFields } from './lib/venueDr
 
 const PAGE = 20
 const SAVED = 'נשמר לבית שלכם ונשלח לאישור. אחרי אישור יופיע לכולם.'
+const SAVED_LATER = 'מופיע אצלכם כבר עכשיו, ואחרי אישור יופיע לכולם.'
 
 /** What is open on top of the list; one sheet at a time. */
 type Panel =
@@ -40,6 +42,8 @@ type Panel =
   | { type: 'new-venue'; name: string; draft: DealDraft | null }
   /** An admin editing the place; back to its page afterwards. */
   | { type: 'edit-venue'; venue: Venue }
+  /** Deals read from screenshots by an AI chat. */
+  | { type: 'import' }
 
 export function GoingOutPage() {
   const venues = useVenues()
@@ -294,6 +298,25 @@ export function GoingOutPage() {
           onClose={closeDeal}
           onSubmit={submitDeal}
           onAddVenue={panel.deal ? undefined : (draft, name) => setPanel({ type: 'new-venue', name, draft })}
+          onImport={panel.deal ? undefined : () => setPanel({ type: 'import' })}
+        />
+      )}
+      {panel?.type === 'import' && (
+        <ImportDealsSheet
+          venues={venueList}
+          admin={isAdmin}
+          onClose={close}
+          onDone={(count, approved) => {
+            setPanel(null)
+            const one = count === 1
+            setNotice(
+              approved
+                ? one
+                  ? 'הדיל נוסף לכולם'
+                  : `נוספו ${count} דילים לכולם`
+                : `${one ? 'נשלחה הצעה אחת' : `נשלחו ${count} הצעות`} לאישור. ${SAVED_LATER}`,
+            )
+          }}
         />
       )}
       {panel?.type === 'new-venue' && (

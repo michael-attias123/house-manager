@@ -1,21 +1,4 @@
-import { guessCategory, parseItemInput } from './categories'
-
-describe('guessCategory', () => {
-  it.each([
-    ['חלב 3%', 'dairy'],
-    ['עגבניות שרי', 'produce'],
-    ['פיתות', 'bakery'],
-    ['שוקולד חלב', 'pantry'],
-    ['סבון כלים', 'cleaning'],
-    ['סבון ידיים', 'hygiene'],
-    ['חזה עוף', 'meat'],
-    ['מרכך כביסה', 'cleaning'],
-    ['מרכך שיער', 'hygiene'],
-    ['משהו אחר', 'other'],
-  ])('%s → %s', (name, category) => {
-    expect(guessCategory(name)).toBe(category)
-  })
-})
+import { parseItemInput } from './categories'
 
 describe('parseItemInput', () => {
   it.each([

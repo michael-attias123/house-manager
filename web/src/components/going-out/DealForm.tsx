@@ -1,7 +1,7 @@
 // The deal form of going-out, shared by its screens and the admin's
 // suggestions tab (features may not import each other's components).
-import { useMemo, useState, type ReactNode } from 'react'
-import { Plus, Search } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import { Plus, Sparkles } from 'lucide-react'
 import type { SuggestionStatus, Venue } from '@/lib/db-types'
 import { WEEKDAY_LABELS } from '@/lib/dates'
 import { Button } from '@/components/ui/Button'
@@ -21,12 +21,13 @@ import {
   type DraftError,
   type FormMode,
 } from '@/features/going-out/lib/draft'
-import { DEAL_KINDS, venueKind } from '@/features/going-out/lib/kinds'
+import { DEAL_KINDS } from '@/features/going-out/lib/kinds'
 import { crossesMidnight, jerusalemClock } from '@/features/going-out/lib/schedule'
-import { searchVenues } from '@/features/going-out/lib/search'
 import { FormNote } from './FormNote'
+import { VenuePicker } from './VenuePicker'
 
-const MESSAGES: Record<DraftError, ReactNode> = {
+/** Why a draft can't be saved, in words; the AI import shows them too. */
+export const DRAFT_ERRORS: Record<DraftError, ReactNode> = {
   venue_missing: 'צריך לבחור מקום',
   title_short: (
     <>
@@ -52,7 +53,7 @@ const MESSAGES: Record<DraftError, ReactNode> = {
 
 function FieldError({ error }: { error: DraftError | undefined }) {
   if (!error) return null
-  return <p className="text-sm text-rose-700 dark:text-rose-300">{MESSAGES[error]}</p>
+  return <p className="text-sm text-rose-700 dark:text-rose-300">{DRAFT_ERRORS[error]}</p>
 }
 
 interface DealFormProps {
@@ -70,11 +71,12 @@ interface DealFormProps {
   onSubmit: (fields: DealFields) => void | Promise<unknown>
   /** "המקום לא ברשימה?": the draft so far and what was typed in the search. Create only. */
   onAddVenue?: (draft: DealDraft, name: string) => void
+  /** "יש צילום מסך?": to the AI import. Create only. */
+  onImport?: () => void
 }
 
-export function DealForm({ mode, venues, initial, status, place, onClose, onSubmit, onAddVenue }: DealFormProps) {
+export function DealForm({ mode, venues, initial, status, place, onClose, onSubmit, onAddVenue, onImport }: DealFormProps) {
   const [draft, setDraft] = useState(initial)
-  const [query, setQuery] = useState('')
   const [checked, setChecked] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -82,7 +84,6 @@ export function DealForm({ mode, venues, initial, status, place, onClose, onSubm
   const errors = checked ? validateDraft(draft, today) : {}
   const venue = venues.find((v) => v.id === draft.venueId) ?? (draft.venueId != null ? place : undefined)
   const editing = mode !== 'create'
-  const results = useMemo(() => searchVenues(venues, query), [venues, query])
   const set = (patch: Partial<DealDraft>) => setDraft((d) => ({ ...d, ...patch }))
 
   const toggleDay = (day: number) =>
@@ -118,63 +119,35 @@ export function DealForm({ mode, venues, initial, status, place, onClose, onSubm
       <div className="space-y-4">
         {/* A new deal's "sent for approval" comes as a notice after saving. */}
         {editing && <FormNote mode={mode} status={status} />}
+        {onImport && (
+          <button
+            type="button"
+            onClick={onImport}
+            className="flex w-full items-center gap-2 rounded-xl bg-surface-2 px-3 py-2.5 text-start text-sm text-ink-2 active:bg-line"
+          >
+            <Sparkles size={16} className="shrink-0 text-brand-700 dark:text-brand-200" />
+            <span>
+              יש צילום מסך או פוסט עם דילים? <span className="font-medium text-ink">ייבוא עם AI</span>
+            </span>
+          </button>
+        )}
         <div className="space-y-1.5">
           <span className="block text-sm font-medium text-ink-2">מקום</span>
-          {venue ? (
-            <div className="flex items-center gap-2 rounded-xl border border-line px-3 py-2">
-              <span aria-hidden>{venueKind(venue.kind).emoji}</span>
-              <span className="min-w-0 flex-1 truncate font-medium">{venue.name}</span>
-              {/* An admin edits the deal, not where it is. */}
-              {mode !== 'admin' && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    set({ venueId: null })
-                    setQuery('')
-                  }}
-                >
-                  שינוי
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-1">
-              <div className="relative">
-                <Search size={18} className="pointer-events-none absolute start-3 top-3 text-ink-3" />
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="חיפוש לפי שם המקום"
-                  aria-label="חיפוש מקום"
-                  className="ps-10"
-                />
-              </div>
-              {results.length > 0 && (
-                <ul className="divide-y divide-line rounded-xl border border-line">
-                  {results.map((v) => (
-                    <li key={v.id}>
-                      <button
-                        type="button"
-                        onClick={() => set({ venueId: v.id })}
-                        className="flex w-full items-center gap-2 px-3 py-2.5 text-start active:bg-surface-2"
-                      >
-                        <span aria-hidden>{venueKind(v.kind).emoji}</span>
-                        <span className="min-w-0 flex-1 truncate">{v.name}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {query.trim() && results.length === 0 && <p className="text-sm text-ink-3">לא נמצא מקום בשם הזה</p>}
-              {onAddVenue && (
-                <Button variant="ghost" size="sm" className="px-1" onClick={() => onAddVenue(draft, query.trim())}>
+          <VenuePicker
+            venues={venues}
+            venue={venue}
+            locked={mode === 'admin'}
+            onPick={(venueId) => set({ venueId })}
+            footer={
+              onAddVenue &&
+              ((query) => (
+                <Button variant="ghost" size="sm" className="px-1" onClick={() => onAddVenue(draft, query)}>
                   <Plus size={14} />
                   המקום לא ברשימה? הוספת מקום
                 </Button>
-              )}
-            </div>
-          )}
+              ))
+            }
+          />
           <FieldError error={errors.venue} />
         </div>
 

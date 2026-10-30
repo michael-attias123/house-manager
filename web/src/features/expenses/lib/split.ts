@@ -73,8 +73,3 @@ export function validateSplit(amount: number, input: SplitInput): string | null 
       return null
   }
 }
-
-/** How much `member` owes the payer for this expense (0 if they paid). */
-export function owedToPayer(shares: Shares, payer: string, member: string): number {
-  return member === payer ? 0 : (shares[member] ?? 0)
-}

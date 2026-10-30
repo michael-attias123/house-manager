@@ -1,5 +1,3 @@
-import { classify } from './classify'
-
 export interface ShoppingCategory {
   id: string
   label: string
@@ -24,11 +22,6 @@ const byId = new Map(SHOPPING_CATEGORIES.map((c, i) => [c.id, { ...c, order: i }
 
 export function getCategory(id: string) {
   return byId.get(id) ?? byId.get('other')!
-}
-
-/** The department for a name, from the lexicon alone (see classify.ts). */
-export function guessCategory(name: string): string {
-  return classify(name).category
 }
 
 /**

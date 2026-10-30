@@ -3,16 +3,17 @@ import { Check, EyeOff, Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import type { VenueDeal } from '@/lib/db-types'
 import { Button } from '@/components/ui/Button'
 import { ConfirmButton } from '@/components/ui/ConfirmButton'
+import { Nums } from '@/components/ui/Nums'
 import { Sheet } from '@/components/ui/Sheet'
-import { formatDay } from '@/lib/dates'
 import { useAdminDeleteDeal, useAdminHideVenue, useConfirmDeal, useToggleFavorite } from '../hooks'
 import { todayHours, weekLines, type DayLine } from '../lib/hours'
 import { dealKind, isPerk, venueKind } from '../lib/kinds'
 import { sheetDeals, type DealView, type VenueItem } from '../lib/rank'
-import { canConfirm, confirmedLabel, crossesMidnight, isStale, shortTime } from '../lib/schedule'
+import { dealSchedule } from '../lib/format'
+import { canConfirm, confirmedLabel, isStale } from '../lib/schedule'
 import { instagramUrl, mapsUrl, wazeUrl, websiteUrl } from '../lib/search'
 import { venuePoint } from '../lib/geo'
-import { DealDays, Distance, OpenLabel, openTone } from './Labels'
+import { Distance, OpenLabel, openTone } from './Labels'
 
 interface VenueSheetProps {
   item: VenueItem
@@ -167,6 +168,8 @@ export function VenueSheet({ item, deals, now, admin, onClose, onAddDeal, onEdit
             </>
           ) : venue.source === 'hever' ? (
             'פרטי המקום מרשימת המסעדות של חבר טעמים. הדילים נכתבים על ידי משתמשי האפליקציה.'
+          ) : venue.source === 'visitbr7' ? (
+            'פרטי המקום מאתר התיירות של באר שבע (visitbr7). הדילים נכתבים על ידי משתמשי האפליקציה.'
           ) : (
             'המקום והדילים נכתבים על ידי משתמשי האפליקציה.'
           )}
@@ -240,8 +243,6 @@ function DealRow({ view, now, admin, onEdit }: { view: DealView; now: Date; admi
   const { deal, window } = view
   const confirm = useConfirmDeal()
   const remove = useAdminDeleteDeal()
-  const start = shortTime(deal.starts_at)
-  const end = shortTime(deal.ends_at)
   const approved = deal.status === 'approved'
   const on = window.state === 'active'
 
@@ -255,23 +256,7 @@ function DealRow({ view, now, admin, onEdit }: { view: DealView; now: Date; admi
             {on && !isPerk(deal) && <span className="text-xs text-brand-700 dark:text-brand-200">עכשיו</span>}
           </div>
           <p className="text-ink-2">
-            <DealDays deal={deal} />
-            {' · '}
-            {start && end ? (
-              <>
-                <span className="num">
-                  {start}–{end}
-                </span>
-                {crossesMidnight(deal.starts_at, deal.ends_at) && ' (עד למחרת)'}
-              </>
-            ) : (
-              'כל שעות הפתיחה'
-            )}
-            {deal.kind !== 'event' && deal.valid_until && (
-              <>
-                {' · '}בתוקף עד {formatDay(deal.valid_until)}
-              </>
-            )}
+            <Nums text={dealSchedule(deal)} />
           </p>
           {deal.note && <p className="text-ink-2">{deal.note}</p>}
         </div>

@@ -2322,6 +2322,64 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- admin_add_deals (20261105000100_admin_add_deals.sql): an admin's import of
+-- deals goes in approved, all or nothing, without notifications; nobody else
+-- can call it.
+select set_config('test.outbox_before', (select count(*) from public.notification_outbox)::text, false);
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000c1');
+do $$
+begin
+  perform public.admin_add_deals('[]');
+  raise exception 'a member added deals for everyone';
+exception when insufficient_privilege then null;
+end;
+$$;
+select public.test_login('00000000-0000-0000-0000-0000000000c4');
+do $$
+declare
+  bar bigint := current_setting('test.gv_bar')::bigint;
+  n int;
+begin
+  n := public.admin_add_deals(jsonb_build_array(
+    jsonb_build_object('venue_id', bar, 'title', ' 1+1 על קוקטיילים ', 'kind', 'happy_hour', 'weekdays', jsonb_build_array(4, 2),
+                       'starts_at', '19:00', 'ends_at', '21:00', 'valid_from', null, 'valid_until', null, 'note', ' '),
+    jsonb_build_object('venue_id', bar, 'title', 'ערב סטנדאפ', 'kind', 'event', 'weekdays', jsonb_build_array(),
+                       'starts_at', '21:30', 'ends_at', '23:00', 'valid_from', '2026-12-10', 'valid_until', '2026-12-10',
+                       'note', 'כניסה 40 ש"ח')));
+  assert n = 2, format('%s deals added', n);
+  assert (select status = 'approved' and household_id is null and weekdays = '{2,4}' and note is null
+            and reviewed_by = '00000000-0000-0000-0000-0000000000c4' and created_by = reviewed_by
+          from public.venue_deals where title = '1+1 על קוקטיילים'), 'the deal is not as given, approved';
+  -- One place not approved: nothing goes in.
+  begin
+    perform public.admin_add_deals(jsonb_build_array(
+      jsonb_build_object('venue_id', bar, 'title', 'לא ייכנס', 'kind', 'happy_hour', 'weekdays', jsonb_build_array()),
+      jsonb_build_object('venue_id', current_setting('test.gv_noa')::bigint, 'title', 'גם לא', 'kind', 'happy_hour',
+                         'weekdays', jsonb_build_array())));
+    raise exception 'a deal on a place that is not approved';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'venue not approved' then raise; end if;
+  end;
+  assert not exists (select 1 from public.venue_deals where title = 'לא ייכנס'), 'half an import went in';
+  begin
+    perform public.admin_add_deals('{"deals": []}');
+    raise exception 'an object was taken for a list';
+  exception when invalid_parameter_value then null;
+  end;
+end;
+$$;
+reset role;
+do $$
+begin
+  assert (select count(*) from public.notification_outbox) = current_setting('test.outbox_before')::bigint,
+    'the import sent notifications';
+  assert not has_function_privilege('anon', 'public.admin_add_deals(jsonb)', 'execute')
+     and has_function_privilege('authenticated', 'public.admin_add_deals(jsonb)', 'execute'), 'wrong grants';
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- "חבר טעמים" places (20261103000100_hever_teamim.sql): every one has a keva
 -- card deal everyone sees; running it again changes nothing, and a place
 -- already in the catalog gets the deal instead of a twin.
@@ -2348,6 +2406,9 @@ $$;
 -- "Black" as OSM knows it, 40 m off and without a phone: the import gives
 -- that place the deal and the phone, and adds no twin.
 delete from public.venues where source = 'hever' and name = 'Black';
+-- Its source check predates visitbr7, so those places go until the visitbr7
+-- section below runs its migration again.
+delete from public.venues where source = 'visitbr7';
 insert into public.venues (osm_ref, name, kind, lat, lng, source)
 values ('node/900003', 'Black', 'restaurant', 31.224418 + 40.0 / 111195, 34.801447, 'osm');
 \ir ../migrations/20261103000100_hever_teamim.sql
@@ -2360,6 +2421,69 @@ begin
           where v.osm_ref = 'node/900003' and d.kind = 'member_card') = 1, 'the OSM place did not get the deal';
   assert (select count(*) from public.venue_deals where kind = 'member_card' and title = 'מכבדים חבר טעמים') = 60,
     'running it again added deals';
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- visitbr7 places (20261104000100_visitbr7_bars.sql): the tourism site's bars,
+-- without the bar tour; running it again changes nothing, and a place already
+-- in the catalog gets the details instead of a twin, near its geocode or, for
+-- an entry without one, anywhere in the city. (The "חבר טעמים" section took
+-- them out; this run puts them back as on a fresh database.)
+\ir ../migrations/20261104000100_visitbr7_bars.sql
+do $$
+declare
+  n int;
+begin
+  n := (select count(*) from public.venues where source = 'visitbr7');
+  assert n = 21, format('%s visitbr7 places', n);
+  assert not exists (select 1 from public.venues where name like 'סיור ברים%'), 'the bar tour was added';
+  assert (select count(*) from public.venues where source = 'visitbr7' and lat is null) = 7, 'locations';
+  assert (select count(*) from public.venue_deals d join public.venues v on v.id = d.venue_id
+          where v.source = 'visitbr7') = 0, 'deals were added';
+  assert (select (kind, address, phone, instagram, website, opening_hours, cuisine, lat)
+          from public.venues where source = 'visitbr7' and name = 'בומבינו בר')
+    = ('bar'::text, 'קקל 59'::text, '0525398499'::text, 'bombino_bar_coffee'::text, null::text,
+       'Mo-Su 10:00-02:00'::text, 'כשר'::text, null::double precision), 'בומבינו not converted';
+  assert (select (address, phone, website, opening_hours) from public.venues where source = 'visitbr7' and name = 'פרלה')
+    = ('הסתדרות 39'::text, null::text, 'https://www.facebook.com/pearla.beer7'::text,
+       'Su-Th 17:00-02:00; Fr 21:30-02:00; Sa 19:00-02:00 "במוצאי שבת"'::text), 'פרלה not converted';
+  assert (select kind from public.venues where source = 'visitbr7' and name = 'החלוץ 33') = 'nightclub', 'kind';
+  assert not exists (select 1 from public.venues where source = 'visitbr7' and (hidden or household_id is not null
+                     or status <> 'approved')), 'visitbr7 places not in the shared catalog';
+end;
+$$;
+-- Running it again: nothing added, nothing changed.
+select set_config('test.v7_count', count(*)::text, false), set_config('test.v7_updated', max(updated_at)::text, false)
+from public.venues;
+\ir ../migrations/20261104000100_visitbr7_bars.sql
+do $$
+begin
+  assert (select count(*) from public.venues) = current_setting('test.v7_count')::bigint, 'running it again added places';
+  assert (select max(updated_at) from public.venues) = current_setting('test.v7_updated')::timestamptz,
+    'running it again changed places';
+end;
+$$;
+-- "החלוץ 33" as OSM knows it, 300 m from the geocode and without a phone or
+-- website, and "פרלה" (no geocode) elsewhere in the city without hours; an
+-- admin hid "טינטו". The import fills in the two OSM places and adds no twin.
+delete from public.venues where source = 'visitbr7' and name in ('החלוץ 33', 'פרלה');
+update public.venues set hidden = true, hidden_by_admin = true where source = 'visitbr7' and name = 'טינטו';
+insert into public.venues (osm_ref, name, kind, lat, lng, source) values
+  ('node/900004', 'החלוץ 33', 'bar', 31.238056 + 300.0 / 111195, 34.788199, 'osm'),
+  ('node/900005', 'פרלה', 'pub', 31.2390, 34.7880, 'osm');
+\ir ../migrations/20261104000100_visitbr7_bars.sql
+\ir ../migrations/20261104000100_visitbr7_bars.sql
+do $$
+begin
+  assert (select count(*) from public.venues where source = 'visitbr7') = 19, 'a twin was added';
+  assert (select (kind, phone, website, address) from public.venues where osm_ref = 'node/900004')
+    = ('bar'::text, '0525114591'::text, 'https://www.halutz.co.il/'::text, 'החלוץ 33'::text),
+    'the OSM place did not get the details';
+  assert (select opening_hours like 'Su-Th 17:00-02:00;%' and kind = 'pub' from public.venues where osm_ref = 'node/900005'),
+    'the OSM place without a nearby geocode did not get the details';
+  assert (select count(*) from public.venues where name = 'טינטו') = 1, 'a place the admin hid came back';
+  assert (select hidden from public.venues where name = 'טינטו'), 'the hidden place was shown again';
 end;
 $$;
 

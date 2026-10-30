@@ -41,19 +41,3 @@ export function nextDueAfterCompletion(
 ): ISODate | null {
   return nextOccurrence(rule, maxDate(currentDue, today))
 }
-
-/** Occurrences in [from, to], starting from the next due date. */
-export function occurrencesBetween(
-  rule: Recurrence,
-  nextDue: ISODate,
-  from: ISODate,
-  to: ISODate,
-): ISODate[] {
-  const result: ISODate[] = []
-  let current: ISODate | null = nextDue
-  while (current && current <= to && result.length < 62) {
-    if (current >= from) result.push(current)
-    current = nextOccurrence(rule, current)
-  }
-  return result
-}
