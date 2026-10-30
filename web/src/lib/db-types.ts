@@ -88,8 +88,9 @@ export interface ItemCategory {
   updated_at: string
 }
 
-// "לאן יוצאים" (20261101000100_going_out.sql): places from OpenStreetMap or
-// added by a household, and deals the households suggest.
+// "לאן יוצאים" (20261101000100_going_out.sql): places from OpenStreetMap, the
+// "חבר טעמים" list (20261103000100_hever_teamim.sql) or added by a household,
+// and deals the households suggest.
 export type VenueKind = 'bar' | 'pub' | 'restaurant' | 'cafe' | 'nightclub' | 'other'
 /** member_card: a discount for keva club card ("כרטיס חבר") holders; standing, not a happening. */
 export type DealKind = 'happy_hour' | 'special_day' | 'event' | 'member_card'
@@ -108,7 +109,7 @@ export interface Venue {
   phone: string | null
   instagram: string | null
   cuisine: string | null
-  source: 'osm' | 'community'
+  source: 'osm' | 'community' | 'hever'
   /** null = in the shared catalog; set = a household's suggestion, not approved yet. */
   household_id: string | null
   created_by: string | null
