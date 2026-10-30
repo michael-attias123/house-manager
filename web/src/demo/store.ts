@@ -11,6 +11,8 @@ export type Db = Record<string, Row[]>
 const DB_KEY = 'house-manager-demo-db-v4'
 const USER_KEY = 'house-manager-demo-user'
 const CACHE_KEY = 'house-manager-cache'
+// The tables this browser already got sample rows for.
+const SEEDED_KEY = 'house-manager-demo-seeded'
 
 function read(key: string): string | null {
   try {
@@ -30,19 +32,46 @@ function write(key: string, value: string | null) {
 }
 
 function load(): Db {
+  const seed = createSeed()
   const saved = read(DB_KEY)
   if (saved) {
     try {
       const db = JSON.parse(saved) as Db
-      // Tables added since this browser saved its data start empty, so a
-      // new table needs no DB_KEY bump (which would reset everyone's demo).
-      for (const table of Object.keys(createSeed())) db[table] ??= []
+      if (addNewTables(db, seed)) write(DB_KEY, JSON.stringify(db))
+      write(SEEDED_KEY, JSON.stringify(Object.keys(seed)))
       return db
     } catch {
       // Fall through to a fresh seed.
     }
   }
-  return createSeed()
+  write(SEEDED_KEY, JSON.stringify(Object.keys(seed)))
+  return seed
+}
+
+/**
+ * Gives tables added since this browser saved its data their sample rows, so
+ * a new feature has something to show without a reset (and without a DB_KEY
+ * bump, which would reset everyone's demo). A table seeded once is left
+ * alone, even when emptied. Data saved before this record existed counts
+ * every table with rows as seeded.
+ */
+function addNewTables(db: Db, seed: Db): boolean {
+  let seeded: string[]
+  try {
+    seeded = JSON.parse(read(SEEDED_KEY) ?? 'null') ?? Object.keys(db).filter((t) => db[t]?.length)
+  } catch {
+    seeded = []
+  }
+  const done = new Set(seeded)
+  let changed = false
+  for (const table of Object.keys(seed)) {
+    if (!done.has(table) && !db[table]?.length && seed[table].length) {
+      db[table] = seed[table]
+      changed = true
+    }
+    db[table] ??= []
+  }
+  return changed
 }
 
 export const db: Db = load()
@@ -65,6 +94,7 @@ export function switchUser(userId: string) {
 
 export function resetDemo() {
   write(DB_KEY, null)
+  write(SEEDED_KEY, null)
   write(CACHE_KEY, null)
   window.location.reload()
 }
@@ -101,12 +131,29 @@ export function withDefaults(table: string, row: Row): Row {
     case 'chore_completions':
       Object.assign(base, { done_by: currentUserId(), done_on: today })
       break
+    case 'venues':
+      // bigint identity.
+      Object.assign(base, {
+        id: Math.max(0, ...db.venues.map((v) => Number(v.id))) + 1,
+        osm_ref: null, lat: null, lng: null, address: null, opening_hours: null, website: null, phone: null,
+        instagram: null, cuisine: null, source: 'community', household_id: null, created_by: currentUserId(),
+        status: 'approved', hidden: false, hidden_by_admin: false, review_note: null, suggested_household_id: null,
+        admin_edited_at: null, updated_at: nowIso(),
+      })
+      break
+    case 'venue_deals':
+      Object.assign(base, {
+        household_id: null, created_by: currentUserId(), weekdays: [], starts_at: null, ends_at: null,
+        valid_from: null, valid_until: null, note: null, status: 'pending', reviewed_by: null, reviewed_at: null,
+        review_note: null, last_confirmed_at: nowIso(),
+      })
+      break
     case 'product_links':
     case 'item_categories':
       base.updated_at = nowIso()
       break
     case 'notification_prefs':
-      Object.assign(base, { bills: false, chores: false, partner: false, weekly: false, admin: false, updated_at: nowIso() })
+      Object.assign(base, { bills: false, chores: false, partner: false, weekly: false, going_out: false, admin: false, updated_at: nowIso() })
       break
   }
   return { ...base, ...row }

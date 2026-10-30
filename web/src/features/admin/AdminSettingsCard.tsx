@@ -11,7 +11,7 @@ export default function AdminSettingsCard() {
     <Card className="space-y-3">
       <div className="space-y-1">
         <CardTitle>ניהול האפליקציה</CardTitle>
-        <p className="text-sm text-ink-2">רשימת ההרשמה, בתים, משתמשים ועדכוני מחירים.</p>
+        <p className="text-sm text-ink-2">רשימת ההרשמה, בתים, משתמשים, עדכוני מחירים והצעות ללאן יוצאים.</p>
       </div>
       <Link
         to="/admin"

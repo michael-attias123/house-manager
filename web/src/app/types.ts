@@ -10,6 +10,13 @@ export interface FeatureNav {
   order: number
   /** Features in the same group share one bottom-nav slot and get tabs. */
   group?: NavGroupId
+  /** A one-word label for the bottom bar, when the title is too long for it. */
+  label?: string
+}
+
+/** A route's `handle`: a page title other than the feature's (the header shows the deepest one). */
+export interface RouteHandle {
+  title?: string
 }
 
 /**

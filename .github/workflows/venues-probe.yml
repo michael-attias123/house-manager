@@ -1,0 +1,23 @@
+name: Venues probe
+
+# Read-only: what OpenStreetMap knows about bars, restaurants and cafés in
+# Be'er Sheva (scripts/venues-probe.py). Nothing is written anywhere.
+on:
+  workflow_dispatch:
+  # Also whenever the probe itself changes, so it can be tried from a branch.
+  push:
+    paths: ['scripts/venues-probe.py', '.github/workflows/venues-probe.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python scripts/venues-probe.py

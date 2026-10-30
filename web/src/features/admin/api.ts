@@ -1,6 +1,9 @@
 import { supabase } from '@/lib/supabase'
 import type { AdminHousehold, AdminUser, AllowedEmail, IngestRun } from '@/lib/db-types'
 import { adminErrorMessage, normalizeEmail } from './lib/admin'
+import type { AdminSuggestion } from './lib/suggestions'
+
+export type { AdminSuggestion }
 
 // The admin_* RPCs (20261021000300_admin.sql) check is_admin() on the server;
 // these only call them and turn their errors into Hebrew.
@@ -53,6 +56,38 @@ export async function fetchAdminUsers(): Promise<AdminUser[]> {
 
 export async function deleteUser(userId: string): Promise<void> {
   await call('admin_delete_user', { p_user_id: userId })
+}
+
+// Going-out suggestions (20261101000100_going_out.sql).
+
+export async function fetchSuggestions(): Promise<AdminSuggestion[]> {
+  const rows = (await call<AdminSuggestion[] | null>('admin_list_suggestions')) ?? []
+  return rows.map((s) => ({
+    ...s,
+    venue_id: Number(s.venue_id),
+    similar_venue_id: s.similar_venue_id == null ? null : Number(s.similar_venue_id),
+  }))
+}
+
+const reviewNote = (note: string | undefined) => note?.trim() || null
+
+export async function reviewDeal(id: string, approve: boolean, note?: string): Promise<void> {
+  await call('admin_review_deal', { p_id: id, p_approve: approve, p_note: reviewNote(note) })
+}
+
+export async function reviewVenue(id: number, approve: boolean, note?: string): Promise<void> {
+  await call('admin_review_venue', { p_id: id, p_approve: approve, p_note: reviewNote(note) })
+}
+
+/** A deal can be approved only once its place is, so this approves both, in that order. */
+export async function approveVenueAndDeal(venueId: number, dealId: string): Promise<void> {
+  await reviewVenue(venueId, true)
+  await reviewDeal(dealId, true)
+}
+
+/** Moves the deals of a suggested place to an approved one, and deletes the suggestion. */
+export async function mergeVenue(from: number, into: number): Promise<void> {
+  await call('admin_merge_venue', { p_from: from, p_into: into })
 }
 
 /** ingest_runs is readable by every signed-in user; newest first. */

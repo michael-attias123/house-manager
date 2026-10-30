@@ -36,7 +36,8 @@ const DESCRIPTIONS: Record<PrefKey, ReactNode> = {
       ביום שישי ב-<span className="num">09:00</span>: כמה הוצאתם השבוע ומה היתרה.
     </>
   ),
-  admin: 'כשטעינת המחירים נכשלת או מסתיימת רק בחלקה.',
+  going_out: 'כשהצעה שלכם אושרה או נדחתה.',
+  admin: 'כשטעינת המחירים נכשלת או מסתיימת רק בחלקה, וכשמגיעה הצעה חדשה ללאן יוצאים.',
 }
 
 /** Settings section: turning push on for this device, and choosing what to get. */

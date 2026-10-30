@@ -1,0 +1,44 @@
+name: Places to go out
+
+# Loads bars, pubs, restaurants and cafés in Be'er Sheva from OpenStreetMap
+# (ingest/house_ingest/venues.py) for "לאן יוצאים". A partial Overpass answer
+# changes nothing and fails the run.
+on:
+  schedule:
+    - cron: '37 5 * * 0' # Sunday 08:37 in Israel (summer time)
+  workflow_dispatch:
+
+concurrency:
+  group: venues
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ingest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - name: Skip until Supabase is connected
+        if: env.SUPABASE_DB_URL == ''
+        # Runs before checkout, so not in the ingest/ default directory.
+        working-directory: .
+        run: echo "::notice::Add the SUPABASE_DB_URL secret to load places (see docs/setup.md)."
+      - uses: actions/checkout@v5
+        if: env.SUPABASE_DB_URL != ''
+      - uses: actions/setup-python@v6
+        if: env.SUPABASE_DB_URL != ''
+        with:
+          python-version: '3.12'
+      # Only psycopg, at the version requirements.txt pins: the loader needs
+      # neither the price scraper nor lxml.
+      - if: env.SUPABASE_DB_URL != ''
+        run: pip install "$(grep '^psycopg' requirements.txt)"
+      - if: env.SUPABASE_DB_URL != ''
+        run: python -m house_ingest.venues

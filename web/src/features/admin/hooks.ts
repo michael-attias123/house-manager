@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { householdKeys, useHousehold } from '@/features/household/HouseholdProvider'
 import {
   addAllowedEmail,
+  approveVenueAndDeal,
   deleteHousehold,
   deleteUser,
   fetchAdminHouseholds,
@@ -9,8 +10,12 @@ import {
   fetchAllowedEmails,
   fetchIngestRuns,
   fetchIsAdmin,
+  fetchSuggestions,
+  mergeVenue,
   removeAllowedEmail,
   removeMember,
+  reviewDeal,
+  reviewVenue,
 } from './api'
 
 // Everything under ['admin', ...] is left out of the offline cache (main.tsx).
@@ -20,7 +25,11 @@ export const adminKeys = {
   households: ['admin', 'households'] as const,
   users: ['admin', 'users'] as const,
   ingest: ['admin', 'ingest'] as const,
+  suggestions: ['admin', 'suggestions'] as const,
 }
+
+/** The going-out screens' places, deals and "ההצעות שלי" (features/going-out), by key prefix. */
+const goingOutPrefixes = [['venues'], ['venue-deals'], ['my-suggestions']] as const
 
 /** Only decides what to show: the server checks is_admin() on every admin call. */
 export function useIsAdmin() {
@@ -47,6 +56,11 @@ export function useAdminUsers() {
 
 export function useIngestRuns() {
   return useQuery({ queryKey: adminKeys.ingest, queryFn: () => fetchIngestRuns() })
+}
+
+/** `enabled` lets the tab bar count them only once the user is known to be an admin. */
+export function useAdminSuggestions(enabled = true) {
+  return useQuery({ queryKey: adminKeys.suggestions, queryFn: fetchSuggestions, enabled })
 }
 
 function useInvalidate() {
@@ -101,4 +115,38 @@ export function useDeleteUser() {
     mutationFn: deleteUser,
     onSuccess: () => invalidate(adminKeys.users, adminKeys.households, ...own),
   })
+}
+
+/**
+ * A review changes what every household sees in going-out (the admin's own
+ * included). Refreshed on failure too: "אישור המקום והדיל" may stop halfway.
+ */
+function useSuggestionMutation<T>(mutationFn: (vars: T) => Promise<void>) {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn,
+    onSettled: () => invalidate(adminKeys.suggestions, ...goingOutPrefixes),
+  })
+}
+
+export function useReviewDeal() {
+  return useSuggestionMutation(({ id, approve, note }: { id: string; approve: boolean; note?: string }) =>
+    reviewDeal(id, approve, note),
+  )
+}
+
+export function useReviewVenue() {
+  return useSuggestionMutation(({ id, approve, note }: { id: number; approve: boolean; note?: string }) =>
+    reviewVenue(id, approve, note),
+  )
+}
+
+export function useApproveVenueAndDeal() {
+  return useSuggestionMutation(({ venueId, dealId }: { venueId: number; dealId: string }) =>
+    approveVenueAndDeal(venueId, dealId),
+  )
+}
+
+export function useMergeVenue() {
+  return useSuggestionMutation(({ from, into }: { from: number; into: number }) => mergeVenue(from, into))
 }

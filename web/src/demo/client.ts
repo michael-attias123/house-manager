@@ -50,6 +50,72 @@ function pick(row: Row, columns: string[] | '*'): Row {
 
 const PRIVATE_TABLES = ['app_admins', 'allowed_emails', 'auth_users']
 
+// Row-level security for the tables that other households' rows share
+// (20261101000100_going_out.sql): the global catalog and approved deals are
+// everyone's, a suggestion only its household's until an admin approves it.
+// Other tables need none here: the app already asks for its household's rows.
+interface Policy {
+  select: (row: Row, mine: Set<string>) => boolean
+  insert: (row: Row, mine: Set<string>) => boolean
+  /** update and delete */
+  write: (row: Row, mine: Set<string>) => boolean
+}
+
+const POLICIES: Record<string, Policy> = {
+  venues: {
+    select: (r, mine) => (r.household_id == null && !r.hidden) || mine.has(r.household_id),
+    insert: (r, mine) =>
+      r.source === 'community' && r.status === 'pending' && mine.has(r.household_id) && r.created_by === currentUserId(),
+    write: (r, mine) => mine.has(r.household_id) && r.status !== 'approved',
+  },
+  venue_deals: {
+    select: (r, mine) => r.status === 'approved' || mine.has(r.household_id),
+    insert: (r, mine) =>
+      r.status === 'pending' &&
+      mine.has(r.household_id) &&
+      r.created_by === currentUserId() &&
+      db.venues.some((v) => v.id === r.venue_id && POLICIES.venues.select(v, mine)),
+    write: (r, mine) => mine.has(r.household_id) && r.status !== 'approved',
+  },
+}
+
+// Changed only inside the admin_* RPCs and the ingest (a before-update
+// trigger in the real database, guard_review_columns).
+const GUARDED_COLUMNS: Record<string, string[]> = {
+  venues: ['status', 'review_note', 'source', 'osm_ref', 'hidden', 'hidden_by_admin', 'suggested_household_id', 'admin_edited_at'],
+  venue_deals: ['status', 'reviewed_by', 'reviewed_at', 'review_note'],
+}
+
+/**
+ * The same trigger's other half: a household editing its rejected suggestion
+ * sends it for approval again. The admin's note stays, as "the previous reply".
+ */
+function resubmitIfRejected(table: string, row: Row, before: Row) {
+  if (!GUARDED_COLUMNS[table] || before.status !== 'rejected') return
+  if (Object.keys(row).every((c) => JSON.stringify(row[c]) === JSON.stringify(before[c]))) return
+  row.status = 'pending'
+  if (table === 'venue_deals') Object.assign(row, { reviewed_by: null, reviewed_at: null })
+}
+
+/** Set by an insert trigger: the household that added a place, kept after approval. */
+function onInsert(table: string, row: Row) {
+  if (table === 'venues') row.suggested_household_id = row.household_id ?? null
+}
+
+/** PostgREST's or=(a.eq.x,b.is.null): only the operators this app sends. */
+function orFilter(text: string): (row: Row) => boolean {
+  const terms = text.split(',').map((term) => {
+    const m = term.match(/^(\w+)\.(eq|is)\.(.*)$/)
+    if (!m) throw new Error(`"failed to parse logic tree (${text})"`)
+    const [, column, op, value] = m
+    return (r: Row) => (op === 'is' && value === 'null' ? r[column] == null : r[column] != null && String(r[column]) === value)
+  })
+  return (r) => terms.some((t) => t(r))
+}
+
+const myHouseholds = () =>
+  new Set(db.household_members.filter((m) => m.user_id === currentUserId()).map((m) => String(m.household_id)))
+
 // Embedded resources used by the app's selects.
 const RELATIONS: Record<string, { kind: 'children' | 'parent'; key: string }> = {
   'expenses.expense_shares': { kind: 'children', key: 'expense_id' },
@@ -74,6 +140,8 @@ class Query implements PromiseLike<Result> {
   private one = false
   private payload: Row | Row[] | null = null
   private ignoreDuplicates = false
+  /** A filter PostgREST would reject: the error comes back with the result, like there. */
+  private invalid: Error | null = null
 
   constructor(private table: string) {}
 
@@ -103,6 +171,14 @@ class Query implements PromiseLike<Result> {
   }
   eq(column: string, value: unknown) {
     this.filters.push((r) => r[column] === value)
+    return this
+  }
+  or(filters: string) {
+    try {
+      this.filters.push(orFilter(filters))
+    } catch (err) {
+      this.invalid = err as Error
+    }
     return this
   }
   in(column: string, values: unknown[]) {
@@ -150,15 +226,28 @@ class Query implements PromiseLike<Result> {
   }
 
   private run(): unknown {
+    if (this.invalid) throw this.invalid
     // No grants on these in the real database: only the admin RPCs reach them.
     if (PRIVATE_TABLES.includes(this.table)) throw new Error(`permission denied for table ${this.table}`)
+    const policy = POLICIES[this.table]
+    const mine = policy ? myHouseholds() : new Set<string>()
+    const visible = (r: Row) => !policy || policy.select(r, mine)
+    // Rows this user may change: visible ones, then the update/delete policy.
+    const changeable = (r: Row) => this.matches(r) && visible(r) && (!policy || policy.write(r, mine))
+    const checkNew = (r: Row) => {
+      if (policy && !policy.insert(r, mine)) {
+        throw new Error(`new row violates row-level security policy for table "${this.table}"`)
+      }
+    }
     let affected: Row[]
     switch (this.op) {
       case 'select':
-        affected = this.source().filter((r) => this.matches(r))
+        affected = this.source().filter((r) => this.matches(r) && visible(r))
         break
       case 'insert':
         affected = [this.payload ?? []].flat().map((v) => withDefaults(this.table, v))
+        affected.forEach(checkNew)
+        affected.forEach((r) => onInsert(this.table, r))
         db[this.table].push(...affected)
         break
       case 'upsert': {
@@ -170,6 +259,8 @@ class Query implements PromiseLike<Result> {
             if (!this.ignoreDuplicates) Object.assign(existing, value)
           } else {
             const row = withDefaults(this.table, value)
+            checkNew(row)
+            onInsert(this.table, row)
             db[this.table].push(row)
             affected.push(row)
           }
@@ -177,17 +268,24 @@ class Query implements PromiseLike<Result> {
         break
       }
       case 'update':
-        affected = db[this.table].filter((r) => this.matches(r))
+        if ((GUARDED_COLUMNS[this.table] ?? []).some((c) => c in (this.payload as Row))) {
+          throw new Error('status and review columns change only through admin_review_*')
+        }
+        affected = db[this.table].filter(changeable)
         for (const row of affected) {
+          const before = { ...row }
           Object.assign(row, this.payload)
+          resubmitIfRejected(this.table, row, before)
           if ('updated_at' in row) row.updated_at = new Date().toISOString()
         }
         break
-      case 'delete':
-        affected = db[this.table].filter((r) => this.matches(r))
-        db[this.table] = db[this.table].filter((r) => !this.matches(r))
+      case 'delete': {
+        affected = db[this.table].filter(changeable)
+        const gone = new Set(affected)
+        db[this.table] = db[this.table].filter((r) => !gone.has(r))
         cascadeDelete(this.table, affected)
         break
+      }
     }
     if (this.op !== 'select') save()
     if (this.op !== 'select' && !this.selection) return null
@@ -225,6 +323,7 @@ function cascadeDelete(table: string, rows: Row[]) {
     db.expense_shares = db.expense_shares.filter((s) => !ids.has(s.expense_id))
     for (const p of db.bill_payments) if (ids.has(p.expense_id)) p.expense_id = null
   }
+  if (table === 'venues') db.venue_deals = db.venue_deals.filter((d) => !ids.has(d.venue_id))
 }
 
 function session() {
