@@ -36,7 +36,7 @@ pages_subdomain = "house-manager-9y8"
 # (infra/BOOTSTRAP.md, items 7-9) and the observability secrets exist. Then:
 # observability_enabled = true in one PR, uptime_enabled = true in the next.
 # Workflows read these two lines with sed: keep them as `name = true|false`.
-observability_enabled = false
+observability_enabled = true
 uptime_enabled        = false
 # The <slug> in https://<slug>.grafana.net.
 grafana_stack_slug = "mmmati0103"
