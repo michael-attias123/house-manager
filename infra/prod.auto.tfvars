@@ -3,7 +3,7 @@
 # variable validations and the no_placeholders check point at what is left.
 
 # Cloudflare dashboard -> Account home -> Account ID (32 hex characters).
-cloudflare_account_id = "REPLACE_ME"
+cloudflare_account_id = "f697709c05e8539b524581056f5eb6c8"
 
 # The Pages project name as shown in Workers & Pages (not the pages.dev
 # subdomain, which may carry a suffix such as -9y8).
@@ -17,11 +17,11 @@ github_repository = "house-manager"
 production_branch = "main"
 
 # Supabase -> Project Settings -> General: Project ID (20 lowercase letters).
-supabase_project_ref = "REPLACE_ME"
+supabase_project_ref = "zcjhpedhmhmsozgteqxq"
 # Supabase -> Organization settings: the slug (also in the URL /org/<slug>).
-supabase_organization_id = "REPLACE_ME"
+supabase_organization_id = "vsipawetcgnuzjostfvh"
 # The project's display name exactly as it is now; a different value renames it.
-supabase_project_name = "REPLACE_ME"
+supabase_project_name = "House-Manager"
 # Central EU (Frankfurt), as docs/setup.md recommends.
 supabase_region = "eu-central-1"
 
