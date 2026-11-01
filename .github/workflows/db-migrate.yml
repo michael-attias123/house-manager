@@ -38,6 +38,11 @@ jobs:
       - name: Deploy the send-push Edge Function
         if: env.SUPABASE_DB_URL != '' && env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_PROJECT_REF != ''
         run: supabase functions deploy send-push --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
-      - name: Skip the Edge Function until it can be deployed
+      # Grafana's alert webhook signs its calls with an HMAC (ALERT_WEBHOOK_SECRET)
+      # and has no JWT. Without that secret the function answers 503.
+      - name: Deploy the alert-hook Edge Function
+        if: env.SUPABASE_DB_URL != '' && env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_PROJECT_REF != ''
+        run: supabase functions deploy alert-hook --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+      - name: Skip the Edge Functions until they can be deployed
         if: env.SUPABASE_DB_URL != '' && (env.SUPABASE_ACCESS_TOKEN == '' || env.SUPABASE_PROJECT_REF == '')
-        run: echo "::notice::Add the SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF secrets to deploy the send-push function for push notifications (see docs/setup.md)."
+        run: echo "::notice::Add the SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF secrets to deploy the send-push and alert-hook functions for push notifications (see docs/setup.md)."

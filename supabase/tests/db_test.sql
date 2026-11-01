@@ -2523,4 +2523,340 @@ $$;
 select pg_advisory_unlock(:state_id);
 delete from tofu_state.states;
 
+-- ---------------------------------------------------------------------------
+-- Monitoring (20261106000100_monitoring.sql): grafana_reader reads the
+-- aggregate views in schema monitoring, and nothing else.
+do $$
+declare
+  r text;
+  t regclass;
+  v text;
+  s text[];
+begin
+  assert (select not rolcanlogin and not rolinherit and rolconnlimit = 3 and not rolsuper and not rolbypassrls
+          from pg_roles where rolname = 'grafana_reader'), 'grafana_reader attributes wrong';
+  select setconfig into s from pg_db_role_setting
+  where setrole = 'grafana_reader'::regrole and setdatabase = 0;
+  assert 'statement_timeout=5s' = any (s), format('grafana_reader statement_timeout: %s', s);
+  assert s && array['default_transaction_read_only=on', 'default_transaction_read_only=true'],
+    format('grafana_reader not read-only: %s', s);
+
+  -- Exactly the contract's views and columns (observability/ queries them).
+  assert (select string_agg(table_name || '.' || column_name, ',' order by table_name, ordinal_position)
+          from information_schema.columns where table_schema = 'monitoring')
+    = 'ingest_chain_runs.run_id,ingest_chain_runs.finished_at,ingest_chain_runs.chain_id,ingest_chain_runs.stores,'
+      'ingest_chain_runs.stores_failed,ingest_chain_runs.items,ingest_chain_runs.chain_error,ingest_chain_runs.seconds,'
+      'ingest_runs.id,ingest_runs.started_at,ingest_runs.finished_at,ingest_runs.status,ingest_runs.duration_s,'
+      'outbox_hourly.hour,outbox_hourly.kind,outbox_hourly.queued,outbox_hourly.sent,outbox_hourly.gave_up,'
+      'outbox_hourly.expired,outbox_hourly.p50_latency_s,outbox_hourly.p95_latency_s,'
+      'outbox_now.due_pending,outbox_now.oldest_due_age_s,outbox_now.gave_up_24h,outbox_now.devices,'
+      'outbox_now.devices_without_success_30d,table_sizes.table_name,table_sizes.total_bytes',
+    format('monitoring columns: %s', (select string_agg(table_name || '.' || column_name, ',')
+                                      from information_schema.columns where table_schema = 'monitoring'));
+  assert (select count(*) from information_schema.tables where table_schema = 'monitoring') = 5,
+    'monitoring holds something other than the 5 views';
+  -- No free text and no ids: every column is a number, a time or a bool,
+  -- except the four enums.
+  assert (select string_agg(table_name || '.' || column_name || ':' || data_type, ',' order by table_name, column_name)
+          from information_schema.columns
+          where table_schema = 'monitoring'
+            and data_type not in ('bigint', 'integer', 'double precision', 'numeric', 'timestamp with time zone', 'boolean'))
+    = 'ingest_chain_runs.chain_id:text,ingest_runs.status:text,outbox_hourly.kind:text,table_sizes.table_name:text',
+    format('monitoring exposes other columns: %s', (
+      select string_agg(table_name || '.' || column_name || ':' || data_type, ',')
+      from information_schema.columns
+      where table_schema = 'monitoring'
+        and data_type not in ('bigint', 'integer', 'double precision', 'numeric', 'timestamp with time zone', 'boolean')));
+
+  foreach r in array array['anon', 'authenticated', 'service_role'] loop
+    assert not has_schema_privilege(r, 'monitoring', 'usage'), r || ' can use schema monitoring';
+  end loop;
+  foreach v in array array['ingest_runs', 'ingest_chain_runs', 'outbox_hourly', 'outbox_now', 'table_sizes'] loop
+    assert (select viewowner = 'postgres' from pg_views where schemaname = 'monitoring' and viewname = v),
+      'monitoring.' || v || ' not owned by postgres';
+    assert has_table_privilege('grafana_reader', 'monitoring.' || v, 'select'), 'grafana_reader cannot read ' || v;
+    assert not has_table_privilege('grafana_reader', 'monitoring.' || v, 'insert,update,delete,truncate'),
+      'grafana_reader can write ' || v;
+    foreach r in array array['anon', 'authenticated', 'service_role'] loop
+      assert not has_table_privilege(r, 'monitoring.' || v, 'select'), r || ' can read monitoring.' || v;
+    end loop;
+  end loop;
+  assert not has_schema_privilege('grafana_reader', 'monitoring', 'create'), 'grafana_reader can create in monitoring';
+  assert not has_schema_privilege('grafana_reader', 'public', 'create'), 'grafana_reader can create in public';
+  -- Not one app table, view or sequence, in any schema but monitoring.
+  for t in
+    select c.oid::regclass from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where c.relkind in ('r', 'v', 'm', 'p', 'f', 'S')
+      and n.nspname not in ('monitoring', 'pg_catalog', 'information_schema')
+      and n.nspname not like 'pg_toast%' and n.nspname not like 'pg_temp%'
+  loop
+    assert not has_table_privilege('grafana_reader', t, 'select'), format('grafana_reader can read %s', t);
+  end loop;
+  -- 20261109000100_revoke_public_execute.sql: no function that runs as its
+  -- owner is open to roles without a grant (grafana_reader, PUBLIC).
+  assert not exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prosecdef and has_function_privilege('grafana_reader', p.oid, 'execute')
+  ), format('security definer functions open to grafana_reader: %s', (
+    select string_agg(p.oid::regprocedure::text, ', ')
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prosecdef and has_function_privilege('grafana_reader', p.oid, 'execute')));
+  foreach v in array array['public.is_member(uuid)', 'public.create_household(text,text)', 'public.join_household(text,text)',
+                           'public.regenerate_invite_code(uuid)', 'public.add_placeholder_member(uuid,text)'] loop
+    assert has_function_privilege('authenticated', v, 'execute'), 'authenticated cannot run ' || v;
+    assert not has_function_privilege('anon', v, 'execute'), 'anon can run ' || v;
+  end loop;
+  foreach v in array array['public.check_allowed_email()', 'public.create_default_list()'] loop
+    foreach r in array array['anon', 'authenticated', 'grafana_reader'] loop
+      assert not has_function_privilege(r, v, 'execute'), r || ' can run the trigger function ' || v;
+    end loop;
+  end loop;
+end;
+$$;
+
+-- New functions are not executable by PUBLIC either (default privileges).
+create function public.test_new_function() returns int language sql as 'select 1';
+do $$
+begin
+  assert not has_function_privilege('grafana_reader', 'public.test_new_function()', 'execute'),
+    'a new function is executable by PUBLIC';
+end;
+$$;
+drop function public.test_new_function();
+
+-- The views, with known rows. One transaction, rolled back, so the outbox
+-- and devices hold only these rows and now() is one instant.
+begin;
+delete from public.notification_outbox;
+delete from public.push_subscriptions;
+-- The ingest writes seconds per chain; the run of section 6 predates that for רמי לוי.
+update public.ingest_runs set stats = jsonb_set(stats, '{shufersal,seconds}', '12.5')
+where id = current_setting('test.run_partial')::bigint;
+insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, created_at, last_success_at) values
+  ('00000000-0000-0000-0000-0000000000a1', 'https://push.example.com/mon-ok', 'k', 'a', now() - interval '40 days', now() - interval '1 day'),
+  ('00000000-0000-0000-0000-0000000000a1', 'https://push.example.com/mon-dead', 'k', 'a', now() - interval '40 days', null),
+  ('00000000-0000-0000-0000-0000000000a2', 'https://push.example.com/mon-new', 'k', 'a', now() - interval '2 days', null);
+insert into public.notification_outbox (user_id, kind, title, body, dedup_key, created_at, send_after, sent_at, attempts, last_error) values
+  -- 2026-01-01 10:00 UTC: two sent (60 s and 120 s after due), one gave up, one expired.
+  ('00000000-0000-0000-0000-0000000000a1', 'bills', 'סוד', 'סוד', 'mon:1', '2026-01-01 10:05+00', '2026-01-01 10:05+00', '2026-01-01 10:06+00', 1, null),
+  ('00000000-0000-0000-0000-0000000000a1', 'bills', 'סוד', 'סוד', 'mon:2', '2026-01-01 10:10+00', '2026-01-01 10:00+00', '2026-01-01 10:12+00', 1, null),
+  ('00000000-0000-0000-0000-0000000000a1', 'bills', 'סוד', 'סוד', 'mon:3', '2026-01-01 10:20+00', '2026-01-01 10:20+00', null, 5, '503 secret error text'),
+  ('00000000-0000-0000-0000-0000000000a1', 'bills', 'סוד', 'סוד', 'mon:4', '2026-01-01 10:30+00', '2026-01-01 10:30+00', null, 5, 'expired'),
+  -- Now: one due for 10 minutes, one held for quiet hours, one that gave up an hour ago.
+  ('00000000-0000-0000-0000-0000000000a1', 'partner', 'סוד', 'סוד', 'mon:5', now() - interval '20 minutes', now() - interval '10 minutes', null, 1, '500'),
+  ('00000000-0000-0000-0000-0000000000a1', 'partner', 'סוד', 'סוד', 'mon:6', now(), now() + interval '8 hours', null, 0, null),
+  ('00000000-0000-0000-0000-0000000000a1', 'partner', 'סוד', 'סוד', 'mon:7', now() - interval '1 hour', now() - interval '1 hour', null, 5, '503');
+set role grafana_reader;
+select to_jsonb(h) as hourly from monitoring.outbox_hourly h
+  where hour = '2026-01-01 10:00+00' and kind = 'bills' \gset
+select to_jsonb(n) as outbox_now from monitoring.outbox_now n \gset
+select count(*) as size_rows, bool_and(table_name like '%.%' and total_bytes >= 0) as sizes_ok
+  from monitoring.table_sizes \gset
+select jsonb_agg(to_jsonb(c) - 'finished_at' order by chain_id) as chain_runs
+  from monitoring.ingest_chain_runs c where run_id = current_setting('test.run_partial')::bigint \gset
+select to_jsonb(r) - 'started_at' - 'finished_at' - 'duration_s' as ingest_run, duration_s is not null as has_duration
+  from monitoring.ingest_runs r where id = current_setting('test.run_partial')::bigint \gset
+do $$
+declare
+  c text;
+begin
+  -- And nothing behind the views.
+  foreach c in array array[
+    'select 1 from public.expenses',
+    'select 1 from public.notification_outbox',
+    'select 1 from public.push_subscriptions',
+    'select 1 from public.households',
+    'select 1 from public.ingest_runs',
+    'select 1 from auth.users',
+    -- Nor the functions that run as their owner.
+    'select public.is_member(gen_random_uuid())',
+    'select public.create_household(''x'', ''x'')',
+    'select public.join_household(''x'', ''x'')',
+    'select public.regenerate_invite_code(gen_random_uuid())',
+    'select public.add_placeholder_member(gen_random_uuid(), ''x'')'
+  ] loop
+    begin
+      execute c;
+      raise exception 'grafana_reader ran: %', c;
+    exception when insufficient_privilege then null;
+    end;
+  end loop;
+end;
+$$;
+reset role;
+rollback;
+-- After the rollback, which would also undo a set_config made inside it.
+select set_config('test.mon', jsonb_build_object(
+  'hourly', :'hourly'::jsonb, 'now', :'outbox_now'::jsonb, 'size_rows', :'size_rows'::int, 'sizes_ok', :'sizes_ok'::boolean,
+  'chain_runs', :'chain_runs'::jsonb, 'ingest_run', :'ingest_run'::jsonb, 'has_duration', :'has_duration'::boolean
+)::text, false);
+do $$
+declare
+  m jsonb := current_setting('test.mon')::jsonb;
+begin
+  assert (m -> 'hourly') - 'hour' - 'p50_latency_s' - 'p95_latency_s'
+      = '{"kind": "bills", "queued": 4, "sent": 2, "gave_up": 1, "expired": 1}'::jsonb
+    and abs((m -> 'hourly' ->> 'p50_latency_s')::numeric - 90) < 0.001
+    and abs((m -> 'hourly' ->> 'p95_latency_s')::numeric - 117) < 0.001,
+    format('outbox_hourly: %s', m -> 'hourly');
+  assert m -> 'now' = '{"due_pending": 1, "oldest_due_age_s": 600, "gave_up_24h": 1, "devices": 3,
+                        "devices_without_success_30d": 1}'::jsonb,
+    format('outbox_now: %s', m -> 'now');
+  assert (m ->> 'size_rows')::int = 15 and (m ->> 'sizes_ok')::boolean, format('table_sizes: %s rows', m ->> 'size_rows');
+  -- The partial run of section 6: רמי לוי had no file for its store.
+  assert m -> 'chain_runs' = jsonb_build_array(
+      jsonb_build_object('run_id', current_setting('test.run_partial')::bigint, 'chain_id', 'rami_levy',
+        'stores', 1, 'stores_failed', 1, 'items', 0, 'chain_error', false, 'seconds', null),
+      jsonb_build_object('run_id', current_setting('test.run_partial')::bigint, 'chain_id', 'shufersal',
+        'stores', 1, 'stores_failed', 0, 'items', 10, 'chain_error', false, 'seconds', 12.5)),
+    format('ingest_chain_runs: %s', m -> 'chain_runs');
+  assert m -> 'ingest_run' = jsonb_build_object('id', current_setting('test.run_partial')::bigint, 'status', 'failed')
+    and (m ->> 'has_duration')::boolean, format('ingest_runs: %s', m -> 'ingest_run');
+  assert m::text !~ 'סוד|secret|example\.com|0000-0000', format('a view leaked text: %s', m);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Alerts as push (20261107000100_alert_notify.sql): the alert-hook Edge
+-- Function, with the service role, and nobody else.
+set role anon;
+do $$
+begin
+  perform public.notify_admins_from_alert('x', 'x', 'alert:anon');
+  raise exception 'anon ran notify_admins_from_alert';
+exception when insufficient_privilege then null;
+end;
+$$;
+reset role;
+set role authenticated;
+select public.test_login('00000000-0000-0000-0000-0000000000a1');
+do $$
+begin
+  perform public.notify_admins_from_alert('x', 'x', 'alert:admin');
+  raise exception 'an admin ran notify_admins_from_alert from the app';
+exception when insufficient_privilege then null;
+end;
+$$;
+reset role;
+
+-- One notification per admin with the admin pref and a device: a new admin
+-- does, a second new admin without the pref does not, and neither does a
+-- member with the pref who is not an admin.
+begin;
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000e1', 'admin-on@alert.example.com'),
+  ('00000000-0000-0000-0000-0000000000e2', 'admin-off@alert.example.com'),
+  ('00000000-0000-0000-0000-0000000000e3', 'member@alert.example.com');
+insert into public.app_admins (user_id) values
+  ('00000000-0000-0000-0000-0000000000e1'), ('00000000-0000-0000-0000-0000000000e2');
+insert into public.push_subscriptions (user_id, endpoint, p256dh, auth) values
+  ('00000000-0000-0000-0000-0000000000e1', 'https://push.example.com/alert-e1', 'k', 'a'),
+  ('00000000-0000-0000-0000-0000000000e2', 'https://push.example.com/alert-e2', 'k', 'a'),
+  ('00000000-0000-0000-0000-0000000000e3', 'https://push.example.com/alert-e3', 'k', 'a');
+insert into public.notification_prefs (user_id, admin) values
+  ('00000000-0000-0000-0000-0000000000e1', true),
+  ('00000000-0000-0000-0000-0000000000e2', false),
+  ('00000000-0000-0000-0000-0000000000e3', true);
+set role service_role;
+select public.notify_admins_from_alert('האפליקציה לא זמינה', 'פרטים במייל',
+  'alert:3f2a1b0c9d8e7f60:2026-11-01T10:00:00Z:firing') as alert_first \gset
+select public.notify_admins_from_alert('האפליקציה לא זמינה', 'פרטים במייל',
+  'alert:3f2a1b0c9d8e7f60:2026-11-01T10:00:00Z:firing') as alert_again \gset
+select public.notify_admins_from_alert('נפתר: האפליקציה לא זמינה', '',
+  'alert:3f2a1b0c9d8e7f60:2026-11-01T10:00:00Z:resolved') as alert_resolved \gset
+do $$
+begin
+  begin
+    -- Only keys in its own namespace: it cannot take another source's key.
+    perform public.notify_admins_from_alert('x', 'x', 'drift:2026-W45');
+    raise exception 'notify_admins_from_alert took a key outside alert:';
+  exception when others then
+    if sqlerrm <> 'dedup key must start with alert:' then raise; end if;
+  end;
+  begin
+    perform public.notify_admins_from_alert('', 'x', 'alert:x');
+    raise exception 'notify_admins_from_alert without a title';
+  exception when others then
+    if sqlerrm <> 'title and dedup key are required' then raise; end if;
+  end;
+  begin
+    perform public.notify_admins('x', 'x', '/admin', 'alert:direct');
+    raise exception 'service_role ran notify_admins';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+reset role;
+select set_config('test.alert', format('[%s, %s, %s]', :'alert_first', :'alert_again', :'alert_resolved'), false);
+do $$
+declare
+  expected int := (
+    select count(*) from public.app_admins a
+    where exists (select 1 from public.push_subscriptions s where s.user_id = a.user_id)
+      and exists (select 1 from public.notification_prefs p where p.user_id = a.user_id and p.admin)
+  );
+  firing text := 'alert:3f2a1b0c9d8e7f60:2026-11-01T10:00:00Z:firing';
+begin
+  assert expected >= 2, format('want at least two admins to notify, have %s', expected);
+  assert current_setting('test.alert')::jsonb = jsonb_build_array(expected, 0, expected),
+    format('notify_admins_from_alert counts: %s, expected %s each', current_setting('test.alert'), expected);
+  assert (select count(*) from public.notification_outbox where dedup_key = firing) = expected,
+    'not one notification per admin';
+  assert exists (select 1 from public.notification_outbox
+                 where dedup_key = firing and user_id = '00000000-0000-0000-0000-0000000000e1'), 'the new admin missed it';
+  assert not exists (select 1 from public.notification_outbox
+                     where dedup_key like 'alert:%' and user_id in ('00000000-0000-0000-0000-0000000000e2',
+                                                                   '00000000-0000-0000-0000-0000000000e3')),
+    'notified an admin without the pref, or a member who is not an admin';
+  assert (select bool_and(kind = 'admin' and url = '/admin' and title = 'האפליקציה לא זמינה' and body = 'פרטים במייל')
+          from public.notification_outbox where dedup_key = firing), 'alert notification wrong';
+end;
+$$;
+rollback;
+
+-- ---------------------------------------------------------------------------
+-- Trace links (20261108000100_outbox_trace.sql): the request's traceparent is
+-- kept with the row when it is valid, and claim_push_batch hands it on.
+begin;
+delete from public.notification_outbox;
+insert into public.push_subscriptions (user_id, endpoint, p256dh, auth)
+values ('00000000-0000-0000-0000-0000000000a1', 'https://push.example.com/trace', 'k', 'a');
+select set_config('request.headers',
+  '{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", "content-type": "application/json"}', true);
+select public.enqueue_notification('00000000-0000-0000-0000-0000000000a1', 'test', 'x', 'x', '/', 'trace:valid');
+select set_config('request.headers', '{"traceparent": "00-00000000000000000000000000000000-b7ad6b7169203331-01"}', true);
+select public.enqueue_notification('00000000-0000-0000-0000-0000000000a1', 'test', 'x', 'x', '/', 'trace:zero');
+select set_config('request.headers', '{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01; drop"}', true);
+select public.enqueue_notification('00000000-0000-0000-0000-0000000000a1', 'test', 'x', 'x', '/', 'trace:junk');
+select set_config('request.headers', 'not json', true);
+select public.enqueue_notification('00000000-0000-0000-0000-0000000000a1', 'test', 'x', 'x', '/', 'trace:nojson');
+select set_config('request.headers', '', true);
+select public.enqueue_notification('00000000-0000-0000-0000-0000000000a1', 'test', 'x', 'x', '/', 'trace:none');
+set role service_role;
+select public.claim_push_batch(10) as trace_batch \gset
+reset role;
+select jsonb_object_agg(dedup_key, trace_parent) as trace_rows from public.notification_outbox \gset
+rollback;
+select set_config('test.trace_batch', :'trace_batch', false);
+select set_config('test.trace_rows', :'trace_rows', false);
+do $$
+declare
+  batch jsonb := current_setting('test.trace_batch')::jsonb;
+  tp text := '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
+begin
+  assert current_setting('test.trace_rows')::jsonb = jsonb_build_object(
+      'trace:valid', tp, 'trace:zero', null, 'trace:junk', null, 'trace:nojson', null, 'trace:none', null),
+    format('trace_parent stored: %s', current_setting('test.trace_rows'));
+  assert (select jsonb_object_agg(x ->> 'tag', x -> 'trace_parent') from jsonb_array_elements(batch) x)
+    = jsonb_build_object('trace:valid', tp, 'trace:zero', null, 'trace:junk', null, 'trace:nojson', null, 'trace:none', null),
+    format('claim_push_batch trace_parent: %s', batch);
+  begin
+    insert into public.notification_outbox (user_id, kind, title, dedup_key, trace_parent)
+    values ('00000000-0000-0000-0000-0000000000a1', 'test', 'x', 'trace:direct', 'not a traceparent');
+    raise exception 'outbox accepted an invalid trace_parent';
+  exception when check_violation then null;
+  end;
+end;
+$$;
+
 \echo 'All database tests passed'
