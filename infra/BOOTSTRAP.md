@@ -361,7 +361,7 @@ General pattern: create the new credential, replace the GitHub secret, run
 
 | Credential | Rotate |
 |---|---|
-| Edge and CI OTLP tokens (`grafana_cloud_access_policy_rotating_token`) | Automatic: 90 days, renewed inside the last 14. The weekly drift check shows the replacement; apply it with **Actions → Infrastructure → Run workflow → apply main** (or the next merge). The new token exists before the old one is deleted. |
+| Edge and CI OTLP tokens (`grafana_cloud_access_policy_rotating_token`) | Automatic: 90 days, renewed inside the last 14. The weekly drift check shows the replacement; apply it with **Actions → Infrastructure → Run workflow → apply main** (or the next merge). The old token is not deleted: it works until it expires, at least 14 days later, which covers the time until the new one reaches the function and Actions secrets. |
 | SM publisher token (`grafana_cloud_access_policy_token.sm_publisher`) | By hand, rarely: it feeds the SM installation and the `sm` provider. PR A: `uptime_enabled = false` and a new `name` for the token (it and the installation are replaced); PR B: `uptime_enabled = true`. |
 | Supabase metrics key (`supabase_apikey.grafana_metrics`) | Change its `name` in `modules/backend/supabase` in a PR: the new key is created and handed to the scrape job before the old one is deleted. |
 

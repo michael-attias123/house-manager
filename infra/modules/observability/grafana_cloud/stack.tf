@@ -3,8 +3,11 @@
 #
 # OTLP tokens rotate: 90 days, renewed by the first apply inside the last 14
 # (the weekly drift plan shows it as a replacement; `infra.yml` -> Run
-# workflow -> apply main applies it). The new token exists before the old
-# one is deleted.
+# workflow -> apply main applies it). A replaced token is not deleted
+# (delete_on_destroy = false): it keeps working until it expires, at least
+# 14 days later. observability-sync.yml applies only this module, so it can
+# mint the new token before the full apply hands it to the function and
+# Actions secrets; the old one bridges that gap.
 
 locals {
   # Least privilege: every policy is limited to this one stack.
@@ -37,7 +40,7 @@ resource "grafana_cloud_access_policy_rotating_token" "edge_otlp" {
   name_prefix           = "hm-edge-otlp"
   expire_after          = "2160h"
   early_rotation_window = "336h"
-  delete_on_destroy     = true
+  delete_on_destroy     = false
 
   lifecycle {
     create_before_destroy = true
@@ -67,7 +70,7 @@ resource "grafana_cloud_access_policy_rotating_token" "ci_otlp" {
   name_prefix           = "hm-ci-otlp"
   expire_after          = "2160h"
   early_rotation_window = "336h"
-  delete_on_destroy     = true
+  delete_on_destroy     = false
 
   lifecycle {
     create_before_destroy = true
