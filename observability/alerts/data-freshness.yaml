@@ -1,0 +1,155 @@
+# Data freshness and capacity: SQL views (hm-postgres, monitoring.*) and the
+# Supabase metrics scrape. Schema: observability/README.md.
+# The plan evaluates D1 every 15 minutes; it shares this group's 5 minutes.
+# exec_err_state KeepLast: when Supabase is unreachable, SupabaseDown is the
+# one root-cause alert, not one data-source error per SQL rule.
+# Failed or partial ingest runs are not alerted here: notify_ingest_run()
+# already pushes those to the admins.
+group: data-freshness
+interval: 5m
+rules:
+  # D1. Catches runs that never happened (disabled schedules), runs stuck in
+  # 'running' and runs whose database writes failed.
+  - uid: hm-price-data-stale
+    title: PriceDataStale
+    for: 0s
+    severity: warning
+    push: true
+    summary: "No finished ok or partial price ingest run for more than 30 hours"
+    summary_he: "נתוני המחירים לא התעדכנו יותר מ-30 שעות"
+    runbook: price-data-stale
+    no_data_state: OK
+    exec_err_state: KeepLast
+    condition: C
+    data:
+      - ref_id: A
+        datasource_uid: hm-postgres
+        relative_time_range: { from: 3600, to: 0 }
+        model:
+          refId: A
+          datasource: { type: grafana-postgresql-datasource, uid: hm-postgres }
+          editorMode: code
+          format: table
+          rawQuery: true
+          rawSql: >-
+            select coalesce(extract(epoch from now() - max(finished_at)) / 3600, 9999) as hours
+            from monitoring.ingest_runs
+            where status in ('ok', 'partial') and finished_at is not null
+      - ref_id: B
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: B
+          datasource: { type: __expr__, uid: __expr__ }
+          type: reduce
+          expression: A
+          reducer: last
+          settings: { mode: dropNN }
+      - ref_id: C
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: C
+          datasource: { type: __expr__, uid: __expr__ }
+          type: threshold
+          expression: B
+          conditions:
+            - type: query
+              evaluator: { type: gt, params: [30] }
+              operator: { type: and }
+              query: { params: [C] }
+              reducer: { type: last, params: [] }
+
+  # D2. Oldest due, unsent row older than 30 minutes (3 cron cycles), or at
+  # least 3 rows given up in 24 hours. Quiet hours move send_after, so held
+  # rows are not due.
+  - uid: hm-push-delivery-problem
+    title: PushDeliveryProblem
+    for: 10m
+    severity: warning
+    push: false
+    summary: "Push delivery is stuck (oldest due row over 30 minutes) or failing (3 or more gave up in 24 hours)"
+    summary_he: "יש תקלה בשליחת התראות"
+    runbook: push-delivery
+    no_data_state: OK
+    exec_err_state: KeepLast
+    condition: C
+    data:
+      - ref_id: A
+        datasource_uid: hm-postgres
+        relative_time_range: { from: 3600, to: 0 }
+        model:
+          refId: A
+          datasource: { type: grafana-postgresql-datasource, uid: hm-postgres }
+          editorMode: code
+          format: table
+          rawQuery: true
+          rawSql: select coalesce(max(oldest_due_age_s), 0) as oldest_due_age_s from monitoring.outbox_now
+      - ref_id: B
+        datasource_uid: hm-postgres
+        relative_time_range: { from: 3600, to: 0 }
+        model:
+          refId: B
+          datasource: { type: grafana-postgresql-datasource, uid: hm-postgres }
+          editorMode: code
+          format: table
+          rawQuery: true
+          rawSql: select coalesce(max(gave_up_24h), 0) as gave_up_24h from monitoring.outbox_now
+      - ref_id: C
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: C
+          datasource: { type: __expr__, uid: __expr__ }
+          type: math
+          expression: ($A > 1800) || ($B >= 3)
+
+  # D3. Supabase Free caps the database at 500 MB; this is 80%.
+  - uid: hm-database-near-full
+    title: DatabaseNearFull
+    for: 1h
+    severity: warning
+    push: true
+    summary: "The database is above 400 MB (80% of the 500 MB free limit)"
+    summary_he: "מסד הנתונים מתקרב למגבלת הנפח"
+    runbook: database-near-full
+    no_data_state: OK
+    exec_err_state: KeepLast
+    condition: C
+    data:
+      - ref_id: A
+        datasource_uid: grafanacloud-prom
+        relative_time_range: { from: 600, to: 0 }
+        model:
+          refId: A
+          datasource: { type: prometheus, uid: grafanacloud-prom }
+          editorMode: code
+          expr: max(pg_database_size_bytes{datname="postgres"})
+          instant: true
+          range: false
+          intervalMs: 60000
+          maxDataPoints: 43200
+      - ref_id: B
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: B
+          datasource: { type: __expr__, uid: __expr__ }
+          type: reduce
+          expression: A
+          reducer: last
+          settings: { mode: dropNN }
+      - ref_id: C
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: C
+          datasource: { type: __expr__, uid: __expr__ }
+          type: threshold
+          expression: B
+          conditions:
+            - type: query
+              evaluator: { type: gt, params: [400000000] }
+              operator: { type: and }
+              query: { params: [C] }
+              reducer: { type: last, params: [] }
