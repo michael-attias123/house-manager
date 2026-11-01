@@ -561,7 +561,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "count(sum by (session_id) (count_over_time({app_name=\"house-manager\"} | logfmt | app_environment=\"production\" [24h])))",
+          "expr": "count(sum by (session_id) (count_over_time({app=\"house-manager\"} | logfmt | app_environment=\"production\" [24h])))",
           "editorMode": "code",
           "queryType": "instant",
           "legendFormat": "sessions"
@@ -610,7 +610,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "sum(count_over_time({app_name=\"house-manager\"} |= \"kind=exception\" | logfmt | kind=\"exception\" | app_environment=\"production\" [24h])) or vector(0)",
+          "expr": "sum(count_over_time({app=\"house-manager\"} |= \"kind=exception\" | logfmt | kind=\"exception\" | app_environment=\"production\" [24h])) or vector(0)",
           "editorMode": "code",
           "queryType": "instant",
           "legendFormat": "errors"
@@ -679,7 +679,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "quantile_over_time(0.75, {app_name=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | lcp != \"\" | unwrap lcp [24h]) by (app_name)",
+          "expr": "quantile_over_time(0.75, {app=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | lcp != \"\" | unwrap lcp [24h]) by (app_name)",
           "editorMode": "code",
           "queryType": "instant",
           "legendFormat": "LCP ms"
@@ -690,7 +690,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "quantile_over_time(0.75, {app_name=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | inp != \"\" | unwrap inp [24h]) by (app_name)",
+          "expr": "quantile_over_time(0.75, {app=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | inp != \"\" | unwrap inp [24h]) by (app_name)",
           "editorMode": "code",
           "queryType": "instant",
           "legendFormat": "INP ms"
@@ -701,7 +701,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "quantile_over_time(0.75, {app_name=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | cls != \"\" | unwrap cls [24h]) by (app_name)",
+          "expr": "quantile_over_time(0.75, {app=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | cls != \"\" | unwrap cls [24h]) by (app_name)",
           "editorMode": "code",
           "queryType": "instant",
           "legendFormat": "CLS"
@@ -798,7 +798,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "count(sum by (session_id) (count_over_time({app_name=\"house-manager\"} | logfmt [24h]))) * 30 / 50000 or vector(0)",
+          "expr": "count(sum by (session_id) (count_over_time({app=\"house-manager\"} | logfmt [24h]))) * 30 / 50000 or vector(0)",
           "editorMode": "code",
           "queryType": "instant",
           "legendFormat": "Faro: projected sessions / 50k"

@@ -81,7 +81,7 @@ rules:
           datasource: { type: loki, uid: grafanacloud-logs }
           editorMode: code
           queryType: instant
-          expr: count(sum by (session_id) (count_over_time({app_name="house-manager"} | logfmt [24h]))) * 30 / 50000 or vector(0)
+          expr: count(sum by (session_id) (count_over_time({app="house-manager"} | logfmt [24h]))) * 30 / 50000 or vector(0)
           intervalMs: 60000
           maxDataPoints: 43200
       - ref_id: F

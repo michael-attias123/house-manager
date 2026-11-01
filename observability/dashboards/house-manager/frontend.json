@@ -69,7 +69,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "quantile_over_time(0.75, {app_name=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | lcp != \"\" | unwrap lcp [$__interval]) by (page_url)",
+          "expr": "quantile_over_time(0.75, {app=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | lcp != \"\" | unwrap lcp [$__interval]) by (page_url)",
           "editorMode": "code",
           "queryType": "range",
           "legendFormat": "{{page_url}}"
@@ -116,7 +116,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "quantile_over_time(0.75, {app_name=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | inp != \"\" | unwrap inp [$__interval]) by (page_url)",
+          "expr": "quantile_over_time(0.75, {app=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | inp != \"\" | unwrap inp [$__interval]) by (page_url)",
           "editorMode": "code",
           "queryType": "range",
           "legendFormat": "{{page_url}}"
@@ -163,7 +163,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "quantile_over_time(0.75, {app_name=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | cls != \"\" | unwrap cls [$__interval]) by (page_url)",
+          "expr": "quantile_over_time(0.75, {app=\"house-manager\"} |= \"type=web-vitals\" | logfmt | kind=\"measurement\" | app_environment=\"production\" | cls != \"\" | unwrap cls [$__interval]) by (page_url)",
           "editorMode": "code",
           "queryType": "range",
           "legendFormat": "{{page_url}}"
@@ -209,7 +209,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "sum by (type) (count_over_time({app_name=\"house-manager\"} |= \"kind=exception\" | logfmt | kind=\"exception\" | app_environment=\"production\" [$__interval]))",
+          "expr": "sum by (type) (count_over_time({app=\"house-manager\"} |= \"kind=exception\" | logfmt | kind=\"exception\" | app_environment=\"production\" [$__interval]))",
           "editorMode": "code",
           "queryType": "range",
           "legendFormat": "{{type}}"
@@ -260,7 +260,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "sum by (context_source, page_url, type, value) (count_over_time({app_name=\"house-manager\"} |= \"kind=exception\" | logfmt | kind=\"exception\" | app_environment=\"production\" [24h]))",
+          "expr": "sum by (context_source, page_url, type, value) (count_over_time({app=\"house-manager\"} |= \"kind=exception\" | logfmt | kind=\"exception\" | app_environment=\"production\" [24h]))",
           "editorMode": "code",
           "queryType": "instant"
         }
@@ -423,7 +423,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "sum by (event_data_status, event_data_table) (count_over_time({app_name=\"house-manager\"} |= \"event_name=realtime_status\" | logfmt | event_name=\"realtime_status\" | app_environment=\"production\" [$__interval]))",
+          "expr": "sum by (event_data_status, event_data_table) (count_over_time({app=\"house-manager\"} |= \"event_name=realtime_status\" | logfmt | event_name=\"realtime_status\" | app_environment=\"production\" [$__interval]))",
           "editorMode": "code",
           "queryType": "range",
           "legendFormat": "{{event_data_table}} {{event_data_status}}"
@@ -474,7 +474,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "sum by (event_data_code) (count_over_time({app_name=\"house-manager\"} |= \"event_name=sign_in_failed\" | logfmt | event_name=\"sign_in_failed\" | app_environment=\"production\" [$__interval]))",
+          "expr": "sum by (event_data_code) (count_over_time({app=\"house-manager\"} |= \"event_name=sign_in_failed\" | logfmt | event_name=\"sign_in_failed\" | app_environment=\"production\" [$__interval]))",
           "editorMode": "code",
           "queryType": "range",
           "legendFormat": "{{event_data_code}}"
@@ -525,7 +525,7 @@
             "type": "loki",
             "uid": "grafanacloud-logs"
           },
-          "expr": "count by (app_version) (sum by (app_version, session_id) (count_over_time({app_name=\"house-manager\"} | logfmt | app_environment=\"production\" | label_format app_version=`{{ trunc 7 .app_version }}` [24h])))",
+          "expr": "count by (app_version) (sum by (app_version, session_id) (count_over_time({app=\"house-manager\"} | logfmt | app_environment=\"production\" | label_format app_version=`{{ trunc 7 .app_version }}` [24h])))",
           "editorMode": "code",
           "queryType": "instant"
         }
