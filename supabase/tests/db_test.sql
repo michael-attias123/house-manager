@@ -2592,22 +2592,37 @@ begin
   loop
     assert not has_table_privilege('grafana_reader', t, 'select'), format('grafana_reader can read %s', t);
   end loop;
-  -- Reported, not asserted: functions anyone may call (grafana_reader too).
-  -- Its session is read-only, and app RPCs check auth.uid(), which is null.
-  raise notice 'security definer functions executable by PUBLIC: %', (
-    select coalesce(string_agg(p.oid::regprocedure::text, ', ' order by p.oid::regprocedure::text), 'none')
-    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  -- 20261109000100_revoke_public_execute.sql: no function that runs as its
+  -- owner is open to roles without a grant (grafana_reader, PUBLIC).
+  assert not exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.prosecdef and has_function_privilege('grafana_reader', p.oid, 'execute')
-  );
-  raise notice 'DIAG all public functions executable by PUBLIC: %', (
-    select string_agg(format('%s [definer=%s kind=%s ret=%s acl=%s]', p.oid::regprocedure, p.prosecdef, p.prokind,
-                             p.prorettype::regtype, coalesce(p.proacl::text, 'default')), E'\n' order by p.oid::regprocedure::text)
+  ), format('security definer functions open to grafana_reader: %s', (
+    select string_agg(p.oid::regprocedure::text, ', ')
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public' and has_function_privilege('grafana_reader', p.oid, 'execute')
-  );
-  raise notice 'DIAG default acls: %', (select string_agg(format('%s %s %s', defaclrole::regrole, defaclnamespace, defaclacl), '; ') from pg_default_acl);
+    where n.nspname = 'public' and p.prosecdef and has_function_privilege('grafana_reader', p.oid, 'execute')));
+  foreach v in array array['public.is_member(uuid)', 'public.create_household(text,text)', 'public.join_household(text,text)',
+                           'public.regenerate_invite_code(uuid)', 'public.add_placeholder_member(uuid,text)'] loop
+    assert has_function_privilege('authenticated', v, 'execute'), 'authenticated cannot run ' || v;
+    assert not has_function_privilege('anon', v, 'execute'), 'anon can run ' || v;
+  end loop;
+  foreach v in array array['public.check_allowed_email()', 'public.create_default_list()'] loop
+    foreach r in array array['anon', 'authenticated', 'grafana_reader'] loop
+      assert not has_function_privilege(r, v, 'execute'), r || ' can run the trigger function ' || v;
+    end loop;
+  end loop;
 end;
 $$;
+
+-- New functions are not executable by PUBLIC either (default privileges).
+create function public.test_new_function() returns int language sql as 'select 1';
+do $$
+begin
+  assert not has_function_privilege('grafana_reader', 'public.test_new_function()', 'execute'),
+    'a new function is executable by PUBLIC';
+end;
+$$;
+drop function public.test_new_function();
 
 -- The views, with known rows. One transaction, rolled back, so the outbox
 -- and devices hold only these rows and now() is one instant.
@@ -2652,7 +2667,13 @@ begin
     'select 1 from public.push_subscriptions',
     'select 1 from public.households',
     'select 1 from public.ingest_runs',
-    'select 1 from auth.users'
+    'select 1 from auth.users',
+    -- Nor the functions that run as their owner.
+    'select public.is_member(gen_random_uuid())',
+    'select public.create_household(''x'', ''x'')',
+    'select public.join_household(''x'', ''x'')',
+    'select public.regenerate_invite_code(gen_random_uuid())',
+    'select public.add_placeholder_member(gen_random_uuid(), ''x'')'
   ] loop
     begin
       execute c;
