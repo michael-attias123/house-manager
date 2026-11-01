@@ -5,8 +5,12 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { registerSW } from 'virtual:pwa-register'
 import { persister, queryClient } from '@/lib/queryClient'
 import { supabase } from '@/lib/supabase'
+import { initTelemetry } from '@/lib/telemetry'
 import { App } from '@/app/App'
 import './index.css'
+
+// Production builds with VITE_FARO_URL only; a no-op everywhere else.
+initTelemetry()
 
 // An installed PWA resumes from the background instead of reloading, so it
 // would only look for a new version after being closed. Check on every
