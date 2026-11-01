@@ -1,0 +1,52 @@
+name: Workflow telemetry
+
+# Turns each finished run of the scheduled and deploying workflows into a trace
+# (workflow, jobs, steps, with their real times) and two gauges in Grafana
+# Cloud: scripts/telemetry/gha_trace.py. Allow-listed attributes only: never the
+# branch, commit, actor, names or emails. It prints counts only, since the logs
+# are public, and a failed export is a warning, not a failed run.
+# Skips with a notice until infra/ sets the GRAFANA_OTLP_* secrets.
+on:
+  workflow_run:
+    # The `name:` of prices.yml, venues.yml, db-migrate.yml and infra.yml.
+    workflows: ['Supermarket prices', 'Places to go out', 'Database migrations', 'Infrastructure']
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.GRAFANA_OTLP_ENDPOINT }}
+    steps:
+      - name: Skip until Grafana is connected
+        if: env.OTEL_EXPORTER_OTLP_ENDPOINT == ''
+        run: echo "::notice::Workflow telemetry is off until the GRAFANA_OTLP_ENDPOINT secret exists (docs/setup.md, monitoring)."
+      # The default branch's script, never the triggering run's code.
+      - uses: actions/checkout@v5
+        if: env.OTEL_EXPORTER_OTLP_ENDPOINT != ''
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        if: env.OTEL_EXPORTER_OTLP_ENDPOINT != ''
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/telemetry/requirements.txt
+      # Neither step may fail the run (and email the owner) over telemetry.
+      - if: env.OTEL_EXPORTER_OTLP_ENDPOINT != ''
+        continue-on-error: true
+        run: pip install -r scripts/telemetry/requirements.txt
+      - if: env.OTEL_EXPORTER_OTLP_ENDPOINT != ''
+        continue-on-error: true
+        env:
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.GRAFANA_OTLP_HEADERS }}
+          OTEL_SERVICE_NAME: gha-telemetry
+          GITHUB_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: python scripts/telemetry/gha_trace.py

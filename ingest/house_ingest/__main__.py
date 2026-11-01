@@ -16,9 +16,10 @@ import re
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
-from . import db, fetch
+from . import db, fetch, telemetry
 from .config import ChainConfig, Config, load_config
 from .parse import StoreRecord, in_city, parse_prices, parse_stores
 
@@ -45,7 +46,9 @@ def chain_folder(chain: ChainConfig, work: Path, from_dir: Path | None) -> Path:
 def discover_stores(chains: list[ChainConfig], work: Path, from_dir: Path | None):
     """Returns {chain_id: (chain_code, [all stores])}."""
     if not from_dir:
-        fetch.download(chains, "STORE_FILE", fetch.stores_regex(), work)
+        with telemetry.span("download") as span:
+            fetch.download(chains, "STORE_FILE", fetch.stores_regex(), work)
+            span.set(status="ok")
     found: dict[str, tuple[str | None, list[StoreRecord]]] = {}
     for chain in chains:
         folder = chain_folder(chain, work, from_dir)
@@ -98,15 +101,32 @@ def cmd_run(config: Config, chains: list[ChainConfig], work: Path, from_dir: Pat
         print("SUPABASE_DB_URL is not set; nothing to do. See docs/setup.md.", file=sys.stderr)
         return 0
 
+    # Spans and gauges only when OTEL_EXPORTER_OTLP_ENDPOINT is set (telemetry.py).
+    telemetry.start()
+    status = "error"
+    try:
+        with telemetry.span("ingest.run") as span:
+            status = run_ingest(config, chains, work, from_dir, dry_run, db_url)
+            span.set(status=status)
+    finally:
+        telemetry.finish(status)
+    return 0 if status != "failed" else 1
+
+
+def run_ingest(
+    config: Config, chains: list[ChainConfig], work: Path, from_dir: Path | None, dry_run: bool, db_url: str
+) -> str:
     found = discover_stores(chains, work, from_dir)
     selected = {c.id: select_stores(c, found[c.id][1], config) for c in chains}
     stores_by_code = {
         found[c.id][0]: [s.store_code for s in selected[c.id]] for c in chains if found[c.id][0] and selected[c.id]
     }
     if stores_by_code and not from_dir:
-        fetch.download(
-            [c for c in chains if selected[c.id]], "PRICE_FULL_FILE", fetch.prices_regex(stores_by_code), work
-        )
+        with telemetry.span("download") as span:
+            fetch.download(
+                [c for c in chains if selected[c.id]], "PRICE_FULL_FILE", fetch.prices_regex(stores_by_code), work
+            )
+            span.set(status="ok")
 
     stats: dict[str, dict] = {}
     conn = None
@@ -117,34 +137,15 @@ def cmd_run(config: Config, chains: list[ChainConfig], work: Path, from_dir: Pat
 
     failures = 0
     for chain in chains:
-        chain_code, _ = found[chain.id]
-        chosen = selected[chain.id]
-        chain_stats: dict = {"stores": {}}
-        stats[chain.id] = chain_stats
-        if not chosen:
-            chain_stats["error"] = "no stores found in city (or Stores file unavailable)"
-            failures += 1
-            continue
-        folder = chain_folder(chain, work, from_dir)
-        price_files = fetch.latest_files(folder, "pricefull")
-        if conn:
-            db.upsert_chain(conn, chain.id, chain.name, chain_code)
-            store_ids = db.sync_stores(conn, chain.id, chosen)
-            conn.commit()
-        for store in chosen:
-            entry = price_files.get(store.store_code)
-            if not entry:
-                chain_stats["stores"][store.store_code] = {"name": store.name, "error": "no PriceFull file"}
-                failures += 1
-                continue
-            path, _info = entry
-            prices = parse_prices(path.read_bytes(), chain.id)
-            result: dict = {"name": store.name, "file": path.name, "items": len(prices)}
-            if conn and prices:
-                result.update(db.load_store_prices(conn, store_ids[store.store_code], prices))
-                conn.commit()
-            chain_stats["stores"][store.store_code] = result
-            log.info("%s %s: %d items", chain.id, store.name, len(prices))
+        started = time.monotonic()
+        with telemetry.span(f"chain:{chain.id}", chain_id=chain.id) as span:
+            stats[chain.id] = load_chain(chain, found[chain.id][0], selected[chain.id], work, from_dir, conn)
+            # Seconds after the download (which runs for all chains at once).
+            stats[chain.id]["seconds"] = round(time.monotonic() - started, 1)
+            failed, items = chain_counts(stats[chain.id])
+            failures += failed
+            span.set(items=items, status=chain_status(stats[chain.id]))
+        telemetry.record_chain(chain.id, items, failed, stats[chain.id]["seconds"])
 
     status = "ok" if failures == 0 else ("partial" if any(s.get("stores") for s in stats.values()) else "failed")
     if conn:
@@ -153,7 +154,63 @@ def cmd_run(config: Config, chains: list[ChainConfig], work: Path, from_dir: Pat
         db.finish_run(conn, run_id, status, stats)
         conn.close()
     print(json.dumps({"status": status, "chains": stats}, ensure_ascii=False, indent=2))
-    return 0 if status != "failed" else 1
+    return status
+
+
+def load_chain(
+    chain: ChainConfig,
+    chain_code: str | None,
+    chosen: list[StoreRecord],
+    work: Path,
+    from_dir: Path | None,
+    conn,
+) -> dict:
+    """Loads one chain's stores. Returns its ingest_runs.stats entry:
+    {"stores": {code: {name, file, items, ...} | {name, error}}, "error"?}."""
+    chain_stats: dict = {"stores": {}}
+    if not chosen:
+        chain_stats["error"] = "no stores found in city (or Stores file unavailable)"
+        return chain_stats
+    folder = chain_folder(chain, work, from_dir)
+    price_files = fetch.latest_files(folder, "pricefull")
+    if conn:
+        db.upsert_chain(conn, chain.id, chain.name, chain_code)
+        store_ids = db.sync_stores(conn, chain.id, chosen)
+        conn.commit()
+    for store in chosen:
+        with telemetry.span("store", chain_id=chain.id, store_code=store.store_code) as span:
+            entry = price_files.get(store.store_code)
+            if not entry:
+                chain_stats["stores"][store.store_code] = {"name": store.name, "error": "no PriceFull file"}
+                span.set(status="failed")
+                continue
+            path, _info = entry
+            prices = parse_prices(path.read_bytes(), chain.id)
+            result: dict = {"name": store.name, "file": path.name, "items": len(prices)}
+            if conn and prices:
+                result.update(db.load_store_prices(conn, store_ids[store.store_code], prices))
+                conn.commit()
+            chain_stats["stores"][store.store_code] = result
+            span.set(items=len(prices), status="ok")
+            log.info("%s %s: %d items", chain.id, store.name, len(prices))
+    return chain_stats
+
+
+def chain_counts(chain_stats: dict) -> tuple[int, int]:
+    """(failures, items) of one chain: a chain without stores counts as one failure."""
+    if chain_stats.get("error"):
+        return 1, 0
+    stores = chain_stats["stores"].values()
+    return sum(1 for s in stores if "error" in s), sum(s.get("items", 0) for s in stores if "error" not in s)
+
+
+def chain_status(chain_stats: dict) -> str:
+    if chain_stats.get("error"):
+        return "failed"
+    failed, _ = chain_counts(chain_stats)
+    if failed == 0:
+        return "ok"
+    return "partial" if failed < len(chain_stats["stores"]) else "failed"
 
 
 def main(argv: list[str] | None = None) -> int:
