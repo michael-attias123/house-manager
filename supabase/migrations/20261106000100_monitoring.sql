@@ -146,4 +146,4 @@ grant select on
   monitoring.outbox_hourly,
   monitoring.outbox_now,
   monitoring.table_sizes
-  to grafana_reader;
+  to service_role; -- MUTATION CHECK: grant moved away from grafana_reader
