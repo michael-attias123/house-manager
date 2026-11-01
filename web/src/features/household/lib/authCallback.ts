@@ -46,6 +46,13 @@ export interface SignInFailure {
   message: string
   /** Short technical tag shown under the message, for reporting the problem. */
   detail: string
+  /** A machine code (`flow_state_expired`, `no_code_verifier`, ...), the only part sent to telemetry. */
+  code: string
+}
+
+/** An error code as is when it looks like one (`access_denied`), else `other`: never free text. */
+export function errorCode(value: string | undefined | null): string {
+  return value && /^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(value) ? value : 'other'
 }
 
 interface InitError {
@@ -74,14 +81,16 @@ export function diagnoseSignIn(
       return {
         message: 'הכתובת הזו לא מורשית להיכנס לאפליקציה. אפשר לבקש מבעלי הבית להוסיף אותה.',
         detail: tag('not on allowed_emails'),
+        code: 'not_allowed',
       }
     }
     if (callback.code === 'access_denied') {
-      return { message: 'הכניסה בוטלה במסך של Google. אפשר לנסות שוב.', detail: tag(callback.code) }
+      return { message: 'הכניסה בוטלה במסך של Google. אפשר לנסות שוב.', detail: tag(callback.code), code: callback.code }
     }
     return {
       message: 'Google או Supabase החזירו שגיאה, והכניסה לא הושלמה.',
       detail: tag(`${callback.code}: ${callback.description}`),
+      code: errorCode(callback.code),
     }
   }
 
@@ -89,6 +98,7 @@ export function diagnoseSignIn(
     return {
       message: 'הכניסה התחילה בגרסה קודמת של האפליקציה, שהתעדכנה בינתיים. נסו שוב.',
       detail: tag('implicit tokens'),
+      code: 'implicit_tokens',
     }
   }
 
@@ -98,19 +108,26 @@ export function diagnoseSignIn(
         return {
           message: 'עברו יותר מ-5 דקות מהלחיצה על הכניסה ועד החזרה מ-Google. נסו שוב.',
           detail: tag(initError.code),
+          code: initError.code,
         }
       case 'flow_state_not_found':
-        return { message: 'קוד הכניסה כבר נוצל או שפג תוקפו. נסו שוב.', detail: tag(initError.code) }
+        return {
+          message: 'קוד הכניסה כבר נוצל או שפג תוקפו. נסו שוב.',
+          detail: tag(initError.code),
+          code: initError.code,
+        }
     }
     if (initError.name === 'AuthRetryableFetchError') {
       return {
         message: 'לא הצלחנו להגיע לשרת כדי להשלים את הכניסה. כדאי לבדוק את החיבור ולנסות שוב.',
         detail: tag(initError.message),
+        code: 'network',
       }
     }
     return {
       message: 'הכניסה לא הושלמה.',
       detail: tag(`${initError.code ?? initError.name ?? 'error'}: ${initError.message}`),
+      code: errorCode(initError.code ?? initError.name),
     }
   }
 
@@ -120,12 +137,14 @@ export function diagnoseSignIn(
       message:
         'הדפדפן חוסם שמירת נתונים באתר, ובלי זה אי אפשר להשלים את הכניסה. באייפון זה קורה כשההגדרה „חסימת כל העוגיות” של ספארי פעילה.',
       detail: tag('storage blocked'),
+      code: 'storage_blocked',
     }
   }
   return {
     message:
       'החזרה מ-Google הגיעה לחלון אחר מזה שבו הכניסה התחילה, ולכן היא לא הושלמה. באייפון זה קורה כשמתחילים מהאייקון במסך הבית או מתוך אפליקציה אחרת. נסו שוב מהחלון הזה.',
     detail: tag('no code verifier'),
+    code: 'no_code_verifier',
   }
 }
 

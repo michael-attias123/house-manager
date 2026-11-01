@@ -1,7 +1,8 @@
-import { Suspense } from 'react'
+import { Suspense, useEffect } from 'react'
 import { NavLink, Outlet, useLocation, useMatches } from 'react-router-dom'
 import { Home, MoreHorizontal } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { reportPageView } from '@/lib/telemetry'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Loading } from '@/components/ui/Feedback'
 import { useHousehold } from '@/features/household/HouseholdProvider'
@@ -14,6 +15,8 @@ export function Layout() {
   const { pathname } = useLocation()
   const { household } = useHousehold()
   const matches = useMatches()
+  // The path only (routes take no parameters); never the query string or hash.
+  useEffect(() => reportPageView(pathname), [pathname])
   const feature = featureForPath(pathname)
   const group = NAV.find((n) => n.tabs && n.paths.includes(feature?.path ?? ''))
   // A page of a feature may name itself (route handle), e.g. "ההצעות שלי" under לאן יוצאים.

@@ -1,4 +1,4 @@
-import { diagnoseSignIn, isEmbeddedBrowser, readAuthCallback, withoutAuthParams } from './authCallback'
+import { diagnoseSignIn, errorCode, isEmbeddedBrowser, readAuthCallback, withoutAuthParams } from './authCallback'
 
 const APP = 'https://house-manager-9y8.pages.dev'
 const env = { storageWritable: true, standalone: false }
@@ -71,6 +71,41 @@ describe('diagnoseSignIn', () => {
 
   it('explains tokens from an older build', () => {
     expect(diagnoseSignIn({ kind: 'tokens' }, { message: 'Not a valid PKCE flow url.' }, env).message).toContain('גרסה קודמת')
+  })
+
+  it('gives every failure a machine code without free text (sent to telemetry)', () => {
+    const blocked = { storageWritable: false, standalone: false }
+    const codes = [
+      diagnoseSignIn({ kind: 'code' }, null, env),
+      diagnoseSignIn({ kind: 'code' }, null, blocked),
+      diagnoseSignIn({ kind: 'tokens' }, null, env),
+      diagnoseSignIn({ kind: 'code' }, { code: 'flow_state_expired', message: 'x' }, env),
+      diagnoseSignIn({ kind: 'code' }, { name: 'AuthRetryableFetchError', message: 'Load failed' }, env),
+      diagnoseSignIn({ kind: 'code' }, { name: 'AuthApiError', code: 'bad_code_verifier', message: 'm' }, env),
+      diagnoseSignIn({ kind: 'error', code: 'access_denied', description: '' }, null, env),
+      diagnoseSignIn({ kind: 'error', code: 'server_error', description: 'Database error saving new user' }, null, env),
+      diagnoseSignIn({ kind: 'error', code: 'a user@example.com', description: 'x' }, null, env),
+    ].map((f) => f.code)
+    expect(codes).toEqual([
+      'no_code_verifier',
+      'storage_blocked',
+      'implicit_tokens',
+      'flow_state_expired',
+      'network',
+      'bad_code_verifier',
+      'access_denied',
+      'not_allowed',
+      'other',
+    ])
+  })
+})
+
+describe('errorCode', () => {
+  it('keeps identifiers and replaces anything else', () => {
+    expect(errorCode('over_request_rate_limit')).toBe('over_request_rate_limit')
+    expect(errorCode('AuthApiError')).toBe('AuthApiError')
+    expect(errorCode('Invalid login: user@example.com')).toBe('other')
+    expect(errorCode(undefined)).toBe('other')
   })
 })
 

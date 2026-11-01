@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { reportEvent } from '@/lib/telemetry'
 import { Button } from '@/components/ui/Button'
 import { ErrorBox } from '@/components/ui/Feedback'
 import { useAuth } from './AuthProvider'
-import { isEmbeddedBrowser } from './lib/authCallback'
+import { errorCode, isEmbeddedBrowser } from './lib/authCallback'
 
 export function LoginPage() {
   const { signInFailure } = useAuth()
@@ -22,6 +23,7 @@ export function LoginPage() {
     })
     // On success the browser leaves for Google; we only get here on failure.
     if (error) {
+      reportEvent('sign_in_failed', { code: errorCode(error.code ?? error.name) })
       setError(error)
       setBusy(false)
     }

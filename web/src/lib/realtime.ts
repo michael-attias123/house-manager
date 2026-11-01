@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useQueryClient, type QueryKey } from '@tanstack/react-query'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { reportEvent } from '@/lib/telemetry'
 
 interface SharedChannel {
   channel: RealtimeChannel
@@ -11,6 +12,8 @@ interface SharedChannel {
 // One channel per table and household, shared by every component that
 // listens to it (supabase-js rejects adding listeners to a joined channel).
 const channels = new Map<string, SharedChannel>()
+// Channels we removed ourselves: their CLOSED status is expected.
+const removed = new WeakSet<RealtimeChannel>()
 let sequence = 0
 
 function listen(table: string, householdId: string, listener: () => void): () => void {
@@ -19,12 +22,17 @@ function listen(table: string, householdId: string, listener: () => void): () =>
   if (!shared) {
     const listeners = new Set<() => void>()
     // A unique topic, so a channel still closing never gets reused.
-    const channel = supabase
+    const channel: RealtimeChannel = supabase
       .channel(`${key}:${++sequence}`)
       .on('postgres_changes', { event: '*', schema: 'public', table, filter: `household_id=eq.${householdId}` }, () =>
         listeners.forEach((l) => l()),
       )
-      .subscribe()
+      .subscribe((status) => {
+        // CHANNEL_ERROR, TIMED_OUT, or CLOSED by the server. The status and
+        // table only: the topic holds the household id.
+        if (status === 'SUBSCRIBED' || (status === 'CLOSED' && removed.has(channel))) return
+        reportEvent('realtime_status', { status, table })
+      })
     shared = { channel, listeners }
     channels.set(key, shared)
   }
@@ -34,6 +42,7 @@ function listen(table: string, householdId: string, listener: () => void): () =>
     entry.listeners.delete(listener)
     if (entry.listeners.size === 0 && channels.get(key) === entry) {
       channels.delete(key)
+      removed.add(entry.channel)
       void supabase.removeChannel(entry.channel)
     }
   }

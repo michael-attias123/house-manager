@@ -8,8 +8,18 @@ export default defineConfig(({ mode }) => {
   // `pnpm build:demo`: runs in the browser on sample data (src/demo), no
   // Supabase needed, from any static host or sub-path.
   const demo = mode === 'demo'
+  // Cloudflare Pages sets CF_PAGES, CF_PAGES_BRANCH and CF_PAGES_COMMIT_SHA;
+  // infra/ sets PRODUCTION_BRANCH. Telemetry sends only from 'production'
+  // (src/lib/telemetry), so preview deployments stay silent.
+  const branch = process.env.CF_PAGES_BRANCH
+  const appEnv =
+    branch && branch === process.env.PRODUCTION_BRANCH ? 'production' : process.env.CF_PAGES ? 'preview' : mode
   return {
     base: demo ? './' : '/',
+    define: {
+      'import.meta.env.VITE_APP_ENV': JSON.stringify(appEnv),
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(process.env.CF_PAGES_COMMIT_SHA ?? ''),
+    },
     plugins: [
       react(),
       tailwindcss(),
@@ -60,6 +70,10 @@ export default defineConfig(({ mode }) => {
               {
                 find: /^@\/lib\/supabase$/,
                 replacement: fileURLToPath(new URL('./src/demo/supabase.ts', import.meta.url)),
+              },
+              {
+                find: /^@\/lib\/telemetry$/,
+                replacement: fileURLToPath(new URL('./src/demo/telemetry.ts', import.meta.url)),
               },
             ]
           : []),
