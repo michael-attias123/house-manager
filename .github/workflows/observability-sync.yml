@@ -22,7 +22,7 @@ on:
 permissions: {}
 
 env:
-  TOFU_VERSION: 1.10.6
+  TOFU_VERSION: 1.12.8
   TF_IN_AUTOMATION: '1'
   TF_INPUT: '0'
 
@@ -99,10 +99,6 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
-      GRAFANA_AUTH: ${{ secrets.GRAFANA_SA_TOKEN }}
-      GRAFANA_CLOUD_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
-      GRAFANA_CONNECTIONS_API_ACCESS_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
-      GRAFANA_FRONTEND_O11Y_API_ACCESS_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v5
@@ -114,6 +110,12 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           tofu_wrapper: false
+      # The same token mapping as infra.yml (infra/scripts/grafana-env.sh).
+      - name: Grafana credentials
+        env:
+          GRAFANA_CLOUD_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
+          GRAFANA_SA_TOKEN: ${{ secrets.GRAFANA_SA_TOKEN }}
+        run: ./scripts/grafana-env.sh
       - run: tofu init -input=false -no-color > "$RUNNER_TEMP/init.log" || { grep -A8 '^Error' "$RUNNER_TEMP/init.log"; exit 1; }
       # 0 = in sync, 2 = changes (guarded and applied below), anything else fails.
       - id: plan

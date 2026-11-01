@@ -15,8 +15,10 @@ web/                React 19 + TypeScript + Vite PWA (Tailwind 4, TanStack Query
 supabase/
   migrations/       one SQL file per feature; RLS on every table
   tests/            local_stub.sql (Supabase stand-in) + db_test.sql (RLS/RPC checks)
-  functions/        Edge Functions (Deno): send-push, deployed by db-migrate.yml
+  functions/        Edge Functions (Deno): send-push, alert-hook, deployed by db-migrate.yml
 ingest/             Python 3.12: Price Transparency files → Postgres (daily GitHub Action)
+infra/              OpenTofu: Cloudflare, Supabase, GitHub, Grafana (see infra/README.md)
+observability/      GitOps: Grafana dashboards (Git Sync) and alert rules (see Monitoring)
 scripts/db-test.sh  migrations + db_test.sql + ingest tests on a throwaway Postgres
 docs/setup.md       deployment guide (Hebrew)
 ```
@@ -84,6 +86,11 @@ its components.
   security definer and start with `if not public.is_admin() then raise
   ... errcode '42501'`; the client calls `is_admin()` only to decide what
   to show. Their demo ports in `demo/rpc.ts` keep the same guards.
+- Function grants: new functions are not executable by PUBLIC (default
+  privileges, `20261109000100_revoke_public_execute.sql`). Grant every RPC
+  explicitly (`grant execute ... to authenticated`); a non-security-definer
+  function that an RPC calls needs that grant too, or CI fails. Trigger
+  functions need none. Never grant a security definer function to PUBLIC.
 - Notifications: `enqueue_notification()` is the single entry point (prefs, quiet hours,
   dedup by `(user_id, dedup_key)`); a source is a trigger or RPC that calls it or
   `notify_members()`, never an insert into `notification_outbox`.
@@ -113,6 +120,52 @@ Deals can also be read from screenshots by an AI chat ("ייבוא עם AI",
 `lib/aiImport.ts`): the app gives the instructions and parses the pasted
 answer, calling no model; an admin's import goes in approved through
 `admin_add_deals`. The demo names no real business.
+
+## Monitoring
+
+Grafana Cloud Free, managed in `infra/` and switched by `observability_enabled`
+(and `uptime_enabled`) in `infra/prod.auto.tfvars`. Off means nothing
+Grafana-related is planned, no Grafana token is used, and the app sends
+nothing. Setup and runbooks: docs/setup.md section 8.
+
+- GitOps: dashboards are files in `observability/dashboards`, pulled by Grafana
+  Git Sync (a UI save becomes a PR); alerts, routing and mute timings are YAML
+  in `observability/alerts` and `observability/alerting`, rendered by
+  `infra/modules/observability/grafana_cloud` and re-applied every 30 min by
+  `observability-sync.yml`. Never edit alerts in the Grafana UI. Contact points
+  (they hold secrets) stay in HCL. `scripts/observability/validate.py --strict`
+  (CI) checks uids, the data sources and SQL columns allowed in
+  `observability/datasources.json`, labels, and the runbook anchors in
+  docs/setup.md. Data sources are referenced only by fixed uids.
+- Telemetry is allow-listed: never emails, names, ids, Hebrew text, amounts,
+  item names, notification content, query strings or request bodies; metric
+  labels are fixed enums. Free text goes through a redaction with the same
+  rules everywhere (email, UUID, quoted text, Hebrew, numbers).
+  - Web: only through `@/lib/telemetry` (`initTelemetry`, `reportError`,
+    `reportEvent`, `reportPageView`); the demo build aliases it to a no-op, and
+    CI greps `dist-demo`. It sends only when `VITE_FARO_URL` is set and
+    `VITE_APP_ENV === 'production'` (from `CF_PAGES_BRANCH ===
+    PRODUCTION_BRANCH`). A new event is declared in `lib/telemetry/events.ts`
+    with its allowed attributes; `sanitize.ts` drops anything else. Never call
+    `setUser`. Supabase spans are named `rest:<table>`, `rpc:<fn>`,
+    `auth:<endpoint>`.
+  - Edge Functions: only through `supabase/functions/_shared/otel.ts` (counts,
+    durations, push hosts, status codes, trace links).
+  - Ingest: only through `ingest/house_ingest/telemetry.py`; spans `ingest.run`,
+    `download`, `chain:<id>`, `store`, attributes `chain_id`, `store_code`,
+    `items`, `status`. CI runs become traces through
+    `scripts/telemetry/gha_trace.py` (`telemetry.yml`); a new scheduled or
+    deploying workflow is added to both lists there.
+  - All of them are no-ops without their endpoint and never fail the work.
+- The `monitoring` schema holds aggregate views only (counts, durations, sizes,
+  fixed enums), owned by postgres, never exposed by the Data API or granted to
+  the API roles. Its only reader is `grafana_reader` (nologin in migrations;
+  `infra/scripts/sync-db-roles.sh` sets login and a SCRAM password). A new view
+  needs `grant select ... to grafana_reader` and an entry in the column checks
+  in `db_test.sql` and in `observability/datasources.json`.
+- `ingest_runs.stats` is `{chain: {stores: {code: {...}}, error?, seconds}}`:
+  add keys, never rename them (the admin screen and `notify_ingest_run()` read
+  it).
 
 ## Price data
 

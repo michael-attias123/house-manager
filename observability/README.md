@@ -101,7 +101,9 @@ configuration, and it expires by itself. Use one for an emergency.
 ### `alerts/<group>.yaml`
 
 One rule group per file; `group` must equal the file name. All rules land in
-the "House manager" folder.
+the "House manager alerts" folder (uid `hm-alerts`, created by
+`infra/modules/observability/grafana_cloud`). It is separate from the Git
+Sync folder "House manager", which belongs to the repository connection.
 
 ```yaml
 group: availability            # the rule group name (= file name)
