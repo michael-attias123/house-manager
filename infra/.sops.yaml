@@ -16,4 +16,4 @@
 # refuses to run while it is still the placeholder.
 creation_rules:
   - path_regex: secrets\.enc\.yaml$
-    age: age1REPLACE_ME
+    age: age14gmqxtfl437thxtq74mqyj76vzct3g46h4dasalrg95vjlhmr4rs09nz33
