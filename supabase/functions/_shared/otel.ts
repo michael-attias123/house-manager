@@ -46,7 +46,8 @@ function getProvider(service: string): TracerProvider | null {
   })
   provider = new TracerProvider({
     resource: resourceFromAttributes({ 'service.name': service }),
-    spanProcessors: [new BatchSpanProcessor(exporter)],
+    // sdk-trace takes the exporter inside the options (sdk-trace-base took it directly).
+    spanProcessors: [new BatchSpanProcessor({ exporter })],
   })
   return provider
 }
