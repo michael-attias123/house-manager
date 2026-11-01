@@ -37,7 +37,7 @@ pages_subdomain = "house-manager-9y8"
 # observability_enabled = true in one PR, uptime_enabled = true in the next.
 # Workflows read these two lines with sed: keep them as `name = true|false`.
 observability_enabled = true
-uptime_enabled        = false
+uptime_enabled        = true
 # The <slug> in https://<slug>.grafana.net.
 grafana_stack_slug = "mmmati0103"
 # Dashboards from observability/dashboards: Git Sync (true) or grafana_dashboard (false).
