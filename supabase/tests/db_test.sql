@@ -2663,7 +2663,7 @@ do $$
 declare
   m jsonb := current_setting('test.mon')::jsonb;
 begin
-  assert m -> 'hourly' - 'hour' - 'p50_latency_s' - 'p95_latency_s'
+  assert (m -> 'hourly') - 'hour' - 'p50_latency_s' - 'p95_latency_s'
       = '{"kind": "bills", "queued": 4, "sent": 2, "gave_up": 1, "expired": 1}'::jsonb
     and abs((m -> 'hourly' ->> 'p50_latency_s')::numeric - 90) < 0.001
     and abs((m -> 'hourly' ->> 'p95_latency_s')::numeric - 117) < 0.001,
