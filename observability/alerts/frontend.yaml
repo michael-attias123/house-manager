@@ -25,7 +25,7 @@ rules:
           editorMode: code
           queryType: instant
           expr: >-
-            sum(count_over_time({app_name="house-manager"} |= "kind=exception" | logfmt
+            sum(count_over_time({app="house-manager"} |= "kind=exception" | logfmt
             | kind="exception" | app_environment="production" [1h])) or vector(0)
           intervalMs: 60000
           maxDataPoints: 43200
