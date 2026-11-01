@@ -41,7 +41,7 @@ select
 from public.ingest_runs r;
 
 -- One row per chain per run, from ingest_runs.stats:
--- {"<chain>": {"error"?: ..., "stores": {"<code>": {"items"?: n, "error"?: ...}}}}.
+-- {"<chain>": {"error"?: ..., "seconds"?: n, "stores": {"<code>": {"items"?: n, "error"?: ...}}}}.
 -- Only keys shaped like a chain id are read, so no other text gets through.
 create or replace view monitoring.ingest_chain_runs as
 select
@@ -57,7 +57,9 @@ select
     select coalesce(sum((st.value ->> 'items')::bigint), 0) from jsonb_each(s.stores) st
     where jsonb_typeof(st.value -> 'items') = 'number' and st.value ->> 'items' ~ '^\d{1,15}$'
   )::bigint as items,
-  c.value ? 'error' as chain_error
+  c.value ? 'error' as chain_error,
+  -- Time spent on the chain; null for runs from before the ingest wrote it.
+  case when jsonb_typeof(c.value -> 'seconds') = 'number' then (c.value ->> 'seconds')::numeric end as seconds
 from public.ingest_runs r
 cross join lateral jsonb_each(case when jsonb_typeof(r.stats) = 'object' then r.stats else '{}'::jsonb end) c
 cross join lateral (

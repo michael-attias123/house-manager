@@ -2545,7 +2545,7 @@ begin
   assert (select string_agg(table_name || '.' || column_name, ',' order by table_name, ordinal_position)
           from information_schema.columns where table_schema = 'monitoring')
     = 'ingest_chain_runs.run_id,ingest_chain_runs.finished_at,ingest_chain_runs.chain_id,ingest_chain_runs.stores,'
-      'ingest_chain_runs.stores_failed,ingest_chain_runs.items,ingest_chain_runs.chain_error,'
+      'ingest_chain_runs.stores_failed,ingest_chain_runs.items,ingest_chain_runs.chain_error,ingest_chain_runs.seconds,'
       'ingest_runs.id,ingest_runs.started_at,ingest_runs.finished_at,ingest_runs.status,ingest_runs.duration_s,'
       'outbox_hourly.hour,outbox_hourly.kind,outbox_hourly.queued,outbox_hourly.sent,outbox_hourly.gave_up,'
       'outbox_hourly.expired,outbox_hourly.p50_latency_s,outbox_hourly.p95_latency_s,'
@@ -2560,13 +2560,13 @@ begin
   assert (select string_agg(table_name || '.' || column_name || ':' || data_type, ',' order by table_name, column_name)
           from information_schema.columns
           where table_schema = 'monitoring'
-            and data_type not in ('bigint', 'integer', 'double precision', 'timestamp with time zone', 'boolean'))
+            and data_type not in ('bigint', 'integer', 'double precision', 'numeric', 'timestamp with time zone', 'boolean'))
     = 'ingest_chain_runs.chain_id:text,ingest_runs.status:text,outbox_hourly.kind:text,table_sizes.table_name:text',
     format('monitoring exposes other columns: %s', (
       select string_agg(table_name || '.' || column_name || ':' || data_type, ',')
       from information_schema.columns
       where table_schema = 'monitoring'
-        and data_type not in ('bigint', 'integer', 'double precision', 'timestamp with time zone', 'boolean')));
+        and data_type not in ('bigint', 'integer', 'double precision', 'numeric', 'timestamp with time zone', 'boolean')));
 
   foreach r in array array['anon', 'authenticated', 'service_role'] loop
     assert not has_schema_privilege(r, 'monitoring', 'usage'), r || ' can use schema monitoring';
@@ -2607,6 +2607,9 @@ $$;
 begin;
 delete from public.notification_outbox;
 delete from public.push_subscriptions;
+-- The ingest writes seconds per chain; the run of section 6 predates that for רמי לוי.
+update public.ingest_runs set stats = jsonb_set(stats, '{shufersal,seconds}', '12.5')
+where id = current_setting('test.run_partial')::bigint;
 insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, created_at, last_success_at) values
   ('00000000-0000-0000-0000-0000000000a1', 'https://push.example.com/mon-ok', 'k', 'a', now() - interval '40 days', now() - interval '1 day'),
   ('00000000-0000-0000-0000-0000000000a1', 'https://push.example.com/mon-dead', 'k', 'a', now() - interval '40 days', null),
@@ -2675,9 +2678,9 @@ begin
   -- The partial run of section 6: רמי לוי had no file for its store.
   assert m -> 'chain_runs' = jsonb_build_array(
       jsonb_build_object('run_id', current_setting('test.run_partial')::bigint, 'chain_id', 'rami_levy',
-        'stores', 1, 'stores_failed', 1, 'items', 0, 'chain_error', false),
+        'stores', 1, 'stores_failed', 1, 'items', 0, 'chain_error', false, 'seconds', null),
       jsonb_build_object('run_id', current_setting('test.run_partial')::bigint, 'chain_id', 'shufersal',
-        'stores', 1, 'stores_failed', 0, 'items', 10, 'chain_error', false)),
+        'stores', 1, 'stores_failed', 0, 'items', 10, 'chain_error', false, 'seconds', 12.5)),
     format('ingest_chain_runs: %s', m -> 'chain_runs');
   assert m -> 'ingest_run' = jsonb_build_object('id', current_setting('test.run_partial')::bigint, 'status', 'failed')
     and (m ->> 'has_duration')::boolean, format('ingest_runs: %s', m -> 'ingest_run');
