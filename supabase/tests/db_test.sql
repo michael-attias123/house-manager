@@ -2599,6 +2599,13 @@ begin
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.prosecdef and has_function_privilege('grafana_reader', p.oid, 'execute')
   );
+  raise notice 'DIAG all public functions executable by PUBLIC: %', (
+    select string_agg(format('%s [definer=%s kind=%s ret=%s acl=%s]', p.oid::regprocedure, p.prosecdef, p.prokind,
+                             p.prorettype::regtype, coalesce(p.proacl::text, 'default')), E'\n' order by p.oid::regprocedure::text)
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and has_function_privilege('grafana_reader', p.oid, 'execute')
+  );
+  raise notice 'DIAG default acls: %', (select string_agg(format('%s %s %s', defaclrole::regrole, defaclnamespace, defaclacl), '; ') from pg_default_acl);
 end;
 $$;
 
