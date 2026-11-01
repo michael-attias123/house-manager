@@ -1,0 +1,16 @@
+# The notification policy tree (rendered into grafana_notification_policy by
+# infra module.observability). Receivers are the contact points defined in
+# HCL, because they hold secrets: email-owner (the owner's Grafana login)
+# and app-push (the alert-hook Edge Function, HMAC-signed).
+# Every alert goes to email; alerts labelled push="true" also go to the app's
+# admins as a push, which quiet hours hold until 07:30.
+receiver: email-owner
+group_by: [alertname]
+group_wait: 30s
+group_interval: 15m
+repeat_interval: 24h
+routes:
+  - receiver: app-push
+    matchers: [{ label: push, match: "=", value: "true" }]
+    continue: true
+  - receiver: email-owner

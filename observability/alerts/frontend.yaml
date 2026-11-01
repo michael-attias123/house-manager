@@ -1,0 +1,55 @@
+# Frontend (phase 2): Faro exceptions from production builds, stored as
+# logfmt lines in Grafana Cloud Logs. Schema: observability/README.md.
+group: frontend
+interval: 5m
+rules:
+  # F1
+  - uid: hm-frontend-errors
+    title: FrontendErrors
+    for: 0s
+    severity: warning
+    push: false
+    summary: "More than 10 JavaScript errors in production in the last hour"
+    summary_he: "שגיאות רבות באפליקציה בשעה האחרונה"
+    runbook: frontend-errors
+    no_data_state: OK
+    exec_err_state: KeepLast
+    condition: C
+    data:
+      - ref_id: A
+        datasource_uid: grafanacloud-logs
+        relative_time_range: { from: 3600, to: 0 }
+        model:
+          refId: A
+          datasource: { type: loki, uid: grafanacloud-logs }
+          editorMode: code
+          queryType: instant
+          expr: >-
+            sum(count_over_time({app_name="house-manager"} |= "kind=exception" | logfmt
+            | kind="exception" | app_environment="production" [1h])) or vector(0)
+          intervalMs: 60000
+          maxDataPoints: 43200
+      - ref_id: B
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: B
+          datasource: { type: __expr__, uid: __expr__ }
+          type: reduce
+          expression: A
+          reducer: last
+          settings: { mode: dropNN }
+      - ref_id: C
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: C
+          datasource: { type: __expr__, uid: __expr__ }
+          type: threshold
+          expression: B
+          conditions:
+            - type: query
+              evaluator: { type: gt, params: [10] }
+              operator: { type: and }
+              query: { params: [C] }
+              reducer: { type: last, params: [] }

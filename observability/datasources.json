@@ -1,0 +1,39 @@
+{
+  "description": "The only data sources dashboards and alert rules may reference, by fixed uid. scripts/observability/validate.py enforces it. The grafanacloud-* uids are the Grafana Cloud defaults: confirm them on the real stack (Connections -> Data sources) in phase 1 and change them only here and in the files that use them.",
+  "datasources": [
+    {
+      "uid": "hm-postgres",
+      "type": "grafana-postgresql-datasource",
+      "note": "Created by infra (module.observability) with this fixed uid. Logs in as grafana_reader, which can read only the monitoring.* views below."
+    },
+    {
+      "uid": "grafanacloud-prom",
+      "type": "prometheus",
+      "note": "Grafana Cloud metrics: the Supabase scrape job, Synthetic Monitoring (probe_*), OTel gauges (house_ingest_*, gha_workflow_*)."
+    },
+    {
+      "uid": "grafanacloud-logs",
+      "type": "loki",
+      "note": "Grafana Cloud logs: Faro (Frontend Observability) events, exceptions and measurements."
+    },
+    {
+      "uid": "grafanacloud-traces",
+      "type": "tempo",
+      "note": "Grafana Cloud traces: Faro fetch spans, send-push, ingest and CI traces."
+    },
+    {
+      "uid": "grafanacloud-usage",
+      "type": "prometheus",
+      "note": "Grafana Cloud usage and billing metrics (grafanacloud_*)."
+    }
+  ],
+  "builtin": ["-- Grafana --", "grafana", "-- Mixed --", "-- Dashboard --", "__expr__"],
+  "postgres_views": {
+    "monitoring.ingest_runs": ["id", "started_at", "finished_at", "status", "duration_s"],
+    "monitoring.ingest_chain_runs": ["run_id", "finished_at", "chain_id", "stores", "stores_failed", "items", "chain_error", "seconds"],
+    "monitoring.outbox_hourly": ["hour", "kind", "queued", "sent", "gave_up", "expired", "p50_latency_s", "p95_latency_s"],
+    "monitoring.outbox_now": ["due_pending", "oldest_due_age_s", "gave_up_24h", "devices", "devices_without_success_30d"],
+    "monitoring.table_sizes": ["table_name", "total_bytes"]
+  },
+  "receivers": ["email-owner", "app-push"]
+}

@@ -1,0 +1,94 @@
+# Free-tier budget: each query is a share of a Grafana Cloud Free monthly
+# limit (1 = the whole limit). Logs, traces, checks and sessions are
+# projected from the last 24 hours. Every query ends in "or vector(0)", so a
+# signal that sends nothing yet does not turn the rule into NoData.
+# Verify the grafanacloud_* names in Explore (grafanacloud-usage) in phase 1.
+# Schema: observability/README.md.
+group: budget
+interval: 1h
+rules:
+  # B1
+  - uid: hm-free-tier-budget
+    title: FreeTierBudget
+    for: 0s
+    severity: info
+    push: false
+    summary: "A Grafana Cloud Free limit is above 80% (series, logs, traces, synthetic executions or Faro sessions)"
+    summary_he: "השימוש ב-Grafana קרוב למגבלת החינם"
+    runbook: free-tier-budget
+    no_data_state: OK
+    exec_err_state: KeepLast
+    condition: F
+    data:
+      # Active series against 10k.
+      - ref_id: A
+        datasource_uid: grafanacloud-usage
+        relative_time_range: { from: 3600, to: 0 }
+        model:
+          refId: A
+          datasource: { type: prometheus, uid: grafanacloud-usage }
+          editorMode: code
+          expr: max(grafanacloud_instance_active_series) / 10000 or vector(0)
+          instant: true
+          range: false
+          intervalMs: 60000
+          maxDataPoints: 43200
+      # Logs, projected GB per month against 50.
+      - ref_id: B
+        datasource_uid: grafanacloud-usage
+        relative_time_range: { from: 86400, to: 0 }
+        model:
+          refId: B
+          datasource: { type: prometheus, uid: grafanacloud-usage }
+          editorMode: code
+          expr: sum(avg_over_time(grafanacloud_logs_instance_bytes_received_per_second[24h])) * 86400 * 30 / 50e9 or vector(0)
+          instant: true
+          range: false
+          intervalMs: 60000
+          maxDataPoints: 43200
+      # Traces, projected GB per month against 50.
+      - ref_id: C
+        datasource_uid: grafanacloud-usage
+        relative_time_range: { from: 86400, to: 0 }
+        model:
+          refId: C
+          datasource: { type: prometheus, uid: grafanacloud-usage }
+          editorMode: code
+          expr: sum(avg_over_time(grafanacloud_traces_instance_bytes_received_per_second[24h])) * 86400 * 30 / 50e9 or vector(0)
+          instant: true
+          range: false
+          intervalMs: 60000
+          maxDataPoints: 43200
+      # Synthetic Monitoring: one probe_success sample per execution, against 100k.
+      - ref_id: D
+        datasource_uid: grafanacloud-prom
+        relative_time_range: { from: 86400, to: 0 }
+        model:
+          refId: D
+          datasource: { type: prometheus, uid: grafanacloud-prom }
+          editorMode: code
+          expr: sum(count_over_time(probe_success[24h])) * 30 / 100000 or vector(0)
+          instant: true
+          range: false
+          intervalMs: 60000
+          maxDataPoints: 43200
+      # Faro sessions, projected per month against 50k.
+      - ref_id: E
+        datasource_uid: grafanacloud-logs
+        relative_time_range: { from: 86400, to: 0 }
+        model:
+          refId: E
+          datasource: { type: loki, uid: grafanacloud-logs }
+          editorMode: code
+          queryType: instant
+          expr: count(sum by (session_id) (count_over_time({app_name="house-manager"} | logfmt [24h]))) * 30 / 50000 or vector(0)
+          intervalMs: 60000
+          maxDataPoints: 43200
+      - ref_id: F
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: F
+          datasource: { type: __expr__, uid: __expr__ }
+          type: math
+          expression: ($A > 0.8) || ($B > 0.8) || ($C > 0.8) || ($D > 0.8) || ($E > 0.8)

@@ -1,0 +1,10 @@
+# Mute timings (rendered into grafana_mute_timing by infra
+# module.observability). None for now: push already respects quiet hours in
+# the app, and email is the immediate channel. Format: observability/README.md.
+# Example:
+#   - name: weekend-mornings
+#     intervals:
+#       - weekdays: [friday, saturday]
+#         times: [{ start: "06:00", end: "09:00" }]
+#         location: Asia/Jerusalem
+[]
