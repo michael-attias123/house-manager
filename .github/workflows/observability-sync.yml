@@ -76,9 +76,12 @@ jobs:
     if: needs.gate.outputs.ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Shared with infra.yml's apply: never two writers on the state.
+    # Its own group, not infra.yml's "infra": GitHub keeps one pending job per
+    # group and cancels the older one, so a queued reconcile could replace a
+    # pending infra.yml apply. Two writers on the state are prevented by the
+    # pg backend's state lock instead (-lock-timeout=5m here and in infra.yml).
     concurrency:
-      group: infra
+      group: observability-sync
       cancel-in-progress: false
     permissions:
       contents: read

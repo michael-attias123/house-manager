@@ -30,7 +30,7 @@
   "builtin": ["-- Grafana --", "grafana", "-- Mixed --", "-- Dashboard --", "__expr__"],
   "postgres_views": {
     "monitoring.ingest_runs": ["id", "started_at", "finished_at", "status", "duration_s"],
-    "monitoring.ingest_chain_runs": ["run_id", "finished_at", "chain_id", "stores", "stores_failed", "items", "chain_error"],
+    "monitoring.ingest_chain_runs": ["run_id", "finished_at", "chain_id", "stores", "stores_failed", "items", "chain_error", "seconds"],
     "monitoring.outbox_hourly": ["hour", "kind", "queued", "sent", "gave_up", "expired", "p50_latency_s", "p95_latency_s"],
     "monitoring.outbox_now": ["due_pending", "oldest_due_age_s", "gave_up_24h", "devices", "devices_without_success_30d"],
     "monitoring.table_sizes": ["table_name", "total_bytes"]
