@@ -18,7 +18,7 @@ output "metrics_url" {
 
 output "metrics_secret_key" {
   description = "Secret API key for the metrics endpoint, or null when metrics_key_enabled is false."
-  value       = one(supabase_apikey.grafana_metrics[*].api_key)
+  value       = one(supabase_apikey.grafana_metrics_new[*].api_key)
   sensitive   = true
 }
 
