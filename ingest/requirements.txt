@@ -4,3 +4,6 @@ il-supermarket-scraper==1.0.16
 lxml>=5.2,<6
 psycopg[binary]>=3.2,<4
 PyYAML>=6,<7
+# Spans and gauges (house_ingest/telemetry.py); off without OTEL_EXPORTER_OTLP_ENDPOINT.
+opentelemetry-sdk>=1.45,<2
+opentelemetry-exporter-otlp-proto-http>=1.45,<2
