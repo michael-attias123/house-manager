@@ -13,6 +13,11 @@
 #
 # Without a terminal (stdin is a pipe or a file), create mode reads one value per
 # line in the order of KEYS below; an empty push_secret line generates one.
+#
+# OPTIONAL_KEYS (monitoring) are not asked for by create mode: add each with
+# --set KEY. --check validates them when present and only lists them when not.
+# An empty value for alert_webhook_secret or grafana_reader_password
+# generates one.
 # Works with the bash 3.2 that ships with macOS.
 set -euo pipefail
 
@@ -34,6 +39,15 @@ KEYS=(
   supabase_db_url
 )
 
+# Used only by monitoring (observability_enabled in prod.auto.tfvars; checks.tf
+# requires them while it is true). gitsync_github_token only with Git Sync.
+OPTIONAL_KEYS=(
+  grafana_reader_password
+  alert_webhook_secret
+  alert_email
+  gitsync_github_token
+)
+
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
 say() { printf '%s\n' "$*" >&2; }
@@ -45,16 +59,41 @@ usage() {
 
 # ---------------------------------------------------------------- key metadata
 
+is_optional_key() {
+  local k
+  for k in "${OPTIONAL_KEYS[@]}"; do [[ $k == "$1" ]] && return 0; done
+  return 1
+}
+
 is_known_key() {
   local k
   for k in "${KEYS[@]}"; do [[ $k == "$1" ]] && return 0; done
-  return 1
+  is_optional_key "$1"
 }
 
 # Secret keys are read without echo.
 is_secret() {
   case $1 in
     vapid_private_key | push_secret | google_client_secret | supabase_db_password | supabase_db_url) return 0 ;;
+    grafana_reader_password | alert_webhook_secret | gitsync_github_token) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Keys that can be generated here: prints a new value, or fails without openssl.
+generate() {
+  command -v openssl >/dev/null 2>&1 || return 1
+  case $1 in
+    push_secret | alert_webhook_secret) openssl rand -hex 32 ;;
+    # Letters and digits only: it goes into a connection string.
+    grafana_reader_password) openssl rand -base64 64 | tr -dc 'A-Za-z0-9' | cut -c1-32 ;;
+    *) return 1 ;;
+  esac
+}
+
+can_generate() {
+  case $1 in
+    push_secret | alert_webhook_secret | grafana_reader_password) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -69,6 +108,10 @@ describe() {
     google_client_secret) echo 'Google OAuth client secret: same page as the client ID' ;;
     supabase_db_password) echo 'Supabase database password: the one chosen when the project was created' ;;
     supabase_db_url) echo 'Supabase Session pooler URL, with the password: postgresql://postgres.<ref>:<password>@...:5432/postgres' ;;
+    grafana_reader_password) echo 'Password of the read-only database role grafana_reader (Grafana data source): at least 24 letters and digits' ;;
+    alert_webhook_secret) echo 'HMAC secret between Grafana (contact point app-push) and the alert-hook function: at least 32 chars' ;;
+    alert_email) echo "Alert email address: your Grafana login address (new free stacks only email the stack's users)" ;;
+    gitsync_github_token) echo 'GitHub token for Grafana Git Sync: fine-grained, this repository only, Contents + Pull requests + Webhooks read and write (github_pat_...)' ;;
   esac
 }
 
@@ -111,6 +154,22 @@ validate() {
       if [[ ! $v =~ ^postgres(ql)?:// ]]; then say "$key: must start with postgresql:// (or postgres://)"; return 1; fi
       if [[ $v == *'[YOUR-PASSWORD]'* ]]; then say "$key: replace [YOUR-PASSWORD] with the database password"; return 1; fi
       if [[ $v == *@db.*.supabase.co[:/]* ]]; then warn "$key: this looks like the Direct connection (IPv6 only); GitHub Actions needs the Session pooler URL"; fi
+      ;;
+    grafana_reader_password)
+      if [[ ! $v =~ ^[A-Za-z0-9]+$ ]]; then say "$key: letters and digits only (it goes into a connection string)"; return 1; fi
+      if ((${#v} < 24)); then say "$key: must be at least 24 characters, got ${#v}"; return 1; fi
+      ;;
+    alert_webhook_secret)
+      if ((${#v} < 32)); then say "$key: must be at least 32 characters, got ${#v}"; return 1; fi
+      ;;
+    alert_email)
+      if [[ $v == mailto:* ]]; then say "$key: a plain address, without mailto:"; return 1; fi
+      if [[ ! $v =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then say "$key: not an email address"; return 1; fi
+      ;;
+    gitsync_github_token)
+      if [[ ! $v =~ ^(github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{36,})$ ]]; then
+        say "$key: must be a GitHub token (github_pat_... for a fine-grained one)"; return 1
+      fi
       ;;
   esac
   return 0
@@ -246,12 +305,12 @@ ask() {
     if ((INTERACTIVE)); then
       say ''
       say "$(describe "$key")"
-      if [[ $key == push_secret ]] && command -v openssl >/dev/null 2>&1; then
-        printf '%s' 'Generate a new push_secret with "openssl rand -hex 32"? [Y/n] ' >&2
+      if can_generate "$key" && command -v openssl >/dev/null 2>&1; then
+        printf '%s' "Generate a new $key with openssl? [Y/n] " >&2
         IFS= read -r answer || answer=n
         if [[ -z $answer || $answer == [Yy]* ]]; then
-          v=$(openssl rand -hex 32)
-          say '(generated 64 characters)'
+          v=$(generate "$key")
+          say "(generated ${#v} characters)"
         fi
       fi
       if [[ -z $v ]]; then
@@ -266,9 +325,8 @@ ask() {
       fi
     else
       IFS= read -r v || die "no input for $key (expected one line per key, in the order of KEYS)"
-      if [[ -z $v && $key == push_secret ]]; then
-        command -v openssl >/dev/null 2>&1 || die 'push_secret is empty and openssl is missing'
-        v=$(openssl rand -hex 32)
+      if [[ -z $v ]] && can_generate "$key"; then
+        v=$(generate "$key") || die "$key is empty and openssl is missing"
       fi
     fi
     if validate "$key" "$v"; then
@@ -358,12 +416,13 @@ mode_create() {
       warn 'your local key cannot decrypt the new file; check infra/.sops.yaml'
     fi
   fi
+  say "Monitoring keys (${OPTIONAL_KEYS[*]}) are optional: add each later with --set KEY."
   say 'Next: git add infra/.sops.yaml infra/secrets.enc.yaml, commit, and open a PR (infra/BOOTSTRAP.md).'
 }
 
 mode_set() {
   local key=$1
-  is_known_key "$key" || die "unknown key '$key'; expected one of: ${KEYS[*]}"
+  is_known_key "$key" || die "unknown key '$key'; expected one of: ${KEYS[*]} ${OPTIONAL_KEYS[*]}"
   [[ -f $SECRETS_FILE ]] || die "$SECRETS_FILE does not exist; run without arguments to create it"
   read_recipients >/dev/null
   require_private_key
@@ -381,6 +440,7 @@ mode_set() {
   case $key in
     supabase_db_password) say 'Note: this does not change the password in Supabase. Change it there first, then update supabase_db_url too.' ;;
     vapid_public_key | vapid_private_key) say 'Note: change both VAPID keys together; after apply, every phone turns notifications on again.' ;;
+    gitsync_github_token) say 'Note: also bump gitsync_token_version in prod.auto.tfvars: the token is write-only, so Grafana gets a new value only with a new version.' ;;
   esac
   say 'Commit infra/secrets.enc.yaml and open a PR; the plan shows which resources get the new value.'
 }
@@ -411,6 +471,20 @@ mode_check() {
       problems=1
     fi
     values+=("$v")
+  done
+  # Optional keys: validated when present, listed when not.
+  for key in "${OPTIONAL_KEYS[@]}"; do
+    if ! grep -qxF "$key" <<<"$present"; then
+      printf '  %-22s not set (optional; needed when observability_enabled = true)\n' "$key" >&2
+      continue
+    fi
+    v=$(sops --config "$SOPS_CONFIG" --decrypt --extract "[\"$key\"]" "$SECRETS_FILE")
+    if reason=$(validate "$key" "$v" 2>&1); then
+      printf '  %-22s ok\n' "$key" >&2
+    else
+      printf '  %-22s INVALID: %s\n' "$key" "${reason#"$key": }" >&2
+      problems=1
+    fi
   done
   v=
   while IFS= read -r key; do

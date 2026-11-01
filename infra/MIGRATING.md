@@ -83,7 +83,7 @@ provider as well, just to read the old state. Point the state at the
 Terraform registry once per provider:
 
 ```bash
-for p in cloudflare/cloudflare integrations/github supabase/supabase carlpett/sops; do
+for p in cloudflare/cloudflare integrations/github supabase/supabase carlpett/sops grafana/grafana; do
   terraform state replace-provider -auto-approve "registry.opentofu.org/$p" "registry.terraform.io/$p"
 done
 ```
@@ -146,9 +146,11 @@ any vendor-specific inputs) in `main.tf`.
 | Role | Module | Inputs | Outputs |
 |---|---|---|---|
 | hosting | `modules/hosting/cloudflare_pages` | `account_id`, `project_name`, `production_branch`, `github_owner`, `github_repository`, `root_dir`, `build_command`, `output_dir`, `env_vars`, `secret_env_vars`, `custom_domain` | `url`, `redirect_urls`, `project_name` |
-| backend | `modules/backend/supabase` | `project_ref`, `organization_id`, `project_name`, `region`, `database_password`, `site_url`, `redirect_urls`, `google_client_id`, `google_client_secret`, `function_secrets` | `api_url`, `publishable_key`, `function_url` |
+| backend | `modules/backend/supabase` | `project_ref`, `organization_id`, `project_name`, `region`, `database_password`, `site_url`, `redirect_urls`, `google_client_id`, `google_client_secret`, `function_secrets`, `metrics_key_enabled` | `api_url`, `publishable_key`, `function_url`, `metrics_url`, `metrics_secret_key` |
 | secrets | `modules/secrets/sops` | `file` | `values` (see `SECRETS.md`) |
 | repo | `modules/repo/github` | `repository`, `actions_secrets`, `protected_branch`, `required_checks` | `repository` |
+| observability | `modules/observability/grafana_cloud` | `stack`, `app_name`, `app_origin`, `metrics_url`, `metrics_secret_key`, `db_host`, `db_name`, `db_user`, `db_password`, `alert_email`, `alert_webhook_url`, `alert_webhook_secret`, `config_dir`, `runbook_base_url`, `dashboards_via_git_sync`, `git_sync`, `git_sync_token` | `grafana_url`, `faro_collector_url`, `otlp_endpoint`, `edge_otlp_basic_auth`, `ci_otlp_headers`, `sm_access_token`, `sm_url`, `dashboards_folder_uid` |
+| uptime | `modules/uptime/grafana_synthetics` | `app_url`, `supabase_api_url`, `publishable_key`, `push_url`, `probes`, `push_probes` | `jobs` |
 
 Inputs a vendor has no use for (for example `account_id` on Vercel) are
 declared and ignored, so `main.tf` stays the same.
@@ -188,3 +190,33 @@ example a self-hosted Supabase, or a new Supabase project:
    `supabase/` as today; data moves with a dump and restore, outside IaC.
 3. A truly different backend (not Supabase) is an app change as well, not
    only a module.
+
+### Grafana Cloud → another observability or uptime vendor
+
+The app and jobs speak only OpenTelemetry (OTLP over HTTP) and, in the
+browser, Faro. The observability module's outputs are what they consume:
+
+| Output | Consumer | A replacement must give |
+|---|---|---|
+| `otlp_endpoint`, `edge_otlp_basic_auth` | function secrets `OTLP_ENDPOINT`, `OTLP_BASIC_AUTH` | an OTLP/HTTP base URL and a Basic auth value (or change `functions/_shared/otel.ts` to another header) |
+| `ci_otlp_headers` | Actions secret `GRAFANA_OTLP_HEADERS` | `OTEL_EXPORTER_OTLP_HEADERS` text |
+| `faro_collector_url` | Pages `VITE_FARO_URL` | a Faro-compatible collector, or a change in `web/src/lib/telemetry` |
+| `grafana_url` | output only | any URL |
+| `sm_access_token`, `sm_url` | the `sm` provider | nothing: a new uptime module brings its own provider |
+
+1. Write `modules/observability/<vendor>` with the same inputs and outputs:
+   a write token per consumer (minted, rotating if the vendor allows), the
+   SQL data source (or the vendor's Postgres integration, logging in as
+   `grafana_reader`), the metrics scrape of `metrics_url`, the two alert
+   channels (email to `alert_email`, a signed webhook to
+   `alert_webhook_url` that `alert-hook` can verify, or a change there), and
+   the alerts rendered from `observability/alerts/*.yaml` into the vendor's
+   rule format. Inputs it has no use for (`git_sync`) are declared and
+   ignored.
+2. `modules/uptime/<vendor>`: the same three checks with the same job names
+   (`app`, `supabase-auth`, `send-push`), since the alerts query them.
+3. Swap the `source` lines in `observability.tf` and the providers in
+   `versions.tf`. The plan creates the new vendor's objects and changes the
+   function and Actions secrets; the Grafana ones are destroyed (the stack
+   itself is only looked up, so it stays).
+4. Dashboards are Grafana JSON; another vendor needs its own dashboards.

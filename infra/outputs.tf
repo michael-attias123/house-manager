@@ -17,6 +17,17 @@ output "auth_site_url" {
   value       = module.hosting.url
 }
 
+# null (absent) while observability_enabled is false.
+output "grafana_url" {
+  description = "URL of the Grafana stack."
+  value       = one(module.observability[*].grafana_url)
+}
+
+output "faro_collector_url" {
+  description = "Faro collector URL (public: it is VITE_FARO_URL in the bundle)."
+  value       = one(module.observability[*].faro_collector_url)
+}
+
 output "auth_redirect_urls" {
   description = "Redirect URLs set in Supabase Auth."
   value       = concat(module.hosting.redirect_urls, var.extra_redirect_urls)
