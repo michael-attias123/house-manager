@@ -80,6 +80,14 @@ run "git_sync" {
 
   assert {
     condition = (
+      grafana_rule_group.this["sample"].rule[0].data[0].query_type == "instant" &&
+      grafana_rule_group.this["sample"].rule[0].data[1].query_type == ""
+    )
+    error_message = "A stage's query_type must come from its model's queryType (as Grafana stores it), else be empty."
+  }
+
+  assert {
+    condition = (
       grafana_notification_policy.this.contact_point == "email-owner" &&
       grafana_notification_policy.this.repeat_interval == "24h" &&
       grafana_notification_policy.this.policy[0].contact_point == "app-push" &&

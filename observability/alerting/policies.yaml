@@ -8,7 +8,9 @@ receiver: email-owner
 group_by: [alertname]
 group_wait: 30s
 group_interval: 15m
-repeat_interval: 24h
+# 1d, not 24h: Grafana stores the duration as 1d, and 24h read as a change on
+# every plan.
+repeat_interval: 1d
 routes:
   - receiver: app-push
     matchers: [{ label: push, match: "=", value: "true" }]

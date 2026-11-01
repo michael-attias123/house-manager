@@ -71,10 +71,12 @@ resource "grafana_rule_group" "this" {
         for_each = rule.value.data
         iterator = stage
 
+        # query_type: Grafana copies a stage's model.queryType into it (Loki's
+        # "instant"); sending "" instead showed as a change on every plan.
         content {
           ref_id         = stage.value.ref_id
           datasource_uid = stage.value.datasource_uid
-          query_type     = try(stage.value.query_type, "")
+          query_type     = try(stage.value.query_type, try(stage.value.model.queryType, ""))
           model          = jsonencode(stage.value.model)
 
           relative_time_range {
