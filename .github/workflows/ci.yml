@@ -30,6 +30,41 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm build:demo
+      # The demo build runs on sample data and must never load or call Faro.
+      - name: The demo build has no telemetry
+        run: |
+          if grep -rqE 'faro-collector|grafana\.net|@grafana/faro' dist-demo; then
+            echo "::error::dist-demo references Faro or Grafana; the demo build must alias lib/telemetry to its no-op."
+            exit 1
+          fi
+
+  # Dashboards, alert rules and policies in observability/ (Grafana GitOps),
+  # and the reconciler's plan guard.
+  observability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install 'PyYAML>=6,<7' 'pytest>=8'
+      - run: python scripts/observability/validate.py --strict
+      - run: python -m pytest scripts/observability -q
+
+  # Edge Functions: type check, then the Deno tests (none yet is fine).
+  functions:
+    runs-on: ubuntu-latest
+    env:
+      DENO_VERSION: 2.9.8
+    steps:
+      - uses: actions/checkout@v5
+      - uses: denoland/setup-deno@v2.0.5
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+      - name: deno check
+        run: find supabase/functions -name '*.ts' -print0 | sort -z | xargs -0 deno check
+      - run: deno test --allow-env --permit-no-files supabase/functions
 
   database:
     runs-on: ubuntu-latest

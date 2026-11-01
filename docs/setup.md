@@ -275,6 +275,85 @@ pnpm dev                     # http://localhost:5173
 - `pnpm test`: בדיקות הלוגיקה.
 - `./scripts/db-test.sh`: הרצת ה-migrations ובדיקות ההרשאות על Postgres זמני.
 
+
+---
+
+## 8. ניטור (רשות)
+
+ניטור דרך Grafana Cloud בחינם, בלי כרטיס אשראי: זמינות, מסד הנתונים, שגיאות בדפדפן, ריצות המחירים ומשלוח ההתראות. הכול מוגדר בקוד (`infra/`, `observability/`), ושום דבר לא נוצר בלחיצות. עד שהמתג `observability_enabled` ב-`infra/prod.auto.tfvars` מופעל, הניטור כבוי לגמרי: התשתית לא נוגעת ב-Grafana והאפליקציה לא שולחת דבר.
+
+### הקמה חד-פעמית
+1. הרשמה ב-grafana.com ויצירת stack באזור EU. ה-slug (החלק `<slug>` בכתובת `https://<slug>.grafana.net`) נכנס ל-`infra/prod.auto.tfvars`, בשדה `grafana_stack_slug`.
+2. שני טוקנים לפי `infra/BOOTSTRAP.md` (פריטים 7 ו-8), ושמירתם ב-GitHub:
+   ```bash
+   gh secret set GRAFANA_CLOUD_TOKEN --repo <owner>/house-manager
+   gh secret set GRAFANA_SA_TOKEN --repo <owner>/house-manager
+   ```
+3. טוקן GitHub ל-Git Sync (פריט 9), והסודות של הניטור. מריצים ב-Git Bash, ושורה ריקה פירושה יצירה אוטומטית:
+   ```bash
+   infra/scripts/encrypt-secrets.sh --set gitsync_github_token
+   infra/scripts/encrypt-secrets.sh --set alert_email              # כתובת הכניסה ל-Grafana
+   infra/scripts/encrypt-secrets.sh --set alert_webhook_secret
+   infra/scripts/encrypt-secrets.sh --set grafana_reader_password
+   ```
+4. הרצת **Bootstrap check** מלשונית Actions. כל השורות של Grafana צריכות להיות ירוקות.
+5. PR עם `observability_enabled = true`. אחרי המיזוג, PR שני עם `uptime_enabled = true` (בדיקות הזמינות צריכות טוקן שנוצר ב-PR הראשון).
+
+### איפה רואים
+- הלוחות נמצאים ב-Grafana, בתיקייה "House manager". לוח הבית הוא Overview, ויש גם Frontend, Database ו-Jobs.
+- שמירה של לוח מתוך Grafana לא משנה אותו: היא פותחת PR (Git Sync). השינוי נכנס רק אחרי מיזוג. אפשר גם לערוך ישירות את קובצי ה-JSON ב-`observability/dashboards/`.
+- ההתראות מוגדרות בקבצים `observability/alerts/*.yaml`, ומשתנות רק ב-PR. ב-Grafana הן לקריאה בלבד, בתיקייה "House manager alerts". כל 30 דקות זרימה מחזירה את Grafana למה שכתוב ב-git, ושינוי שלא הגיע מ-commit מדווח ב-issue עם התווית `infra-drift`.
+- השתקה זמנית (silence) מותרת ב-Grafana: היא מצב רגעי ולא הגדרה, והיא פגה מעצמה.
+
+### איך מגיעות התראות
+- במייל לכתובת הכניסה ל-Grafana, מיד.
+- התראות שסומנו כחשובות מגיעות גם כהתראה באפליקציה, למנהלים שההעדפה "ניהול" פעילה אצלם. בשעות השקט (22:00–07:00) הן ממתינות לבוקר, ולכן המייל הוא הערוץ המיידי.
+- כשל בטעינת המחירים לא מגיע מהניטור: האפליקציה כבר שולחת עליו התראה למנהלים. הניטור מתריע על מה שהיא לא רואה, כמו טעינה שלא רצה בכלל.
+
+### עבודות GitHub
+טעינת המחירים היומית שולחת ל-Grafana עקבות (trace) לכל רשת ולכל סניף, וכמה מדדים: מספר המחירים לכל רשת, סניפים שנכשלו, משך הטעינה לכל רשת ותוצאת הריצה. משך הטעינה לכל רשת נשמר גם ב-`ingest_runs.stats` (`seconds`), כך שאפשר לראות אותו גם בלי Grafana. הזרימה "Workflow telemetry" הופכת כל ריצה של מחירים, מקומות, מיגרציות ותשתית לעקבות: שמות ה-workflow, ה-jobs והצעדים, תוצאה וזמנים בלבד, בלי ענף, commit, משתמש או כתובות מייל. כל זה פועל רק כשהסודות `GRAFANA_OTLP_ENDPOINT` ו-`GRAFANA_OTLP_HEADERS` קיימים (התשתית יוצרת אותם), ובלעדיהם הכול כבוי, גם בהרצה מהבית. כשל בשליחה לעולם לא מכשיל את הטעינה.
+
+> **פרטיות: מה נאסף ומה לא.**
+> **נאסף** (רק מהגרסה של ענף ה-production): נתיב המסך בלי פרמטרים, סוג השגיאה והודעה מצונזרת (עד 200 תווים), מדדי מהירות (Web Vitals), משך ומצב של קריאות ל-Supabase לפי יעד בלבד (`rest:<טבלה>`, `rpc:<פונקציה>`, `auth:<נקודה>`), מצב חיבור realtime וטבלה, קוד שגיאת כניסה, גרסת האפליקציה, דפדפן ומערכת הפעלה, מזהה session אקראי, ומונים וזמנים מהשרת.
+> **לא נאסף לעולם:** כתובות מייל, שמות, מזהי משתמש/בית/הוצאה, טקסט בעברית, שמות מוצרים, סכומים, הערות, תוכן התראות, query string ו-hash (כולל `?code=` של הכניסה), גוף בקשות ותשובות, כותרות (`apikey`, `Authorization`), פלט console, טקסט מהדף, לחיצות, כתובות IP ומיקום. כל פריט עובר רשימת היתר (`web/src/lib/telemetry/sanitize.ts`) וצנזור (`redact.ts`) לפני שהוא יוצא מהדפדפן. גרסת הדמו לא כוללת את קוד הניטור בכלל. הנתונים נשמרים ב-Grafana 14 יום.
+
+### כיבוי
+`observability_enabled = false` ב-PR. כל מה שנוצר ב-Grafana נמחק, האפליקציה מפסיקה לשלוח נתונים בבנייה הבאה, וה-stack עצמו נשאר. גרסאות preview ובנייה מקומית לא שולחות בכל מקרה.
+
+### Runbook
+
+<a id="runbook-app-down"></a>
+**האפליקציה לא זמינה (AppDown).** לבדוק ב-Cloudflare Pages שהפריסה האחרונה הצליחה ושהדומיין פעיל. אם פריסה נכשלה, להריץ אותה מחדש או לחזור לפריסה הקודמת.
+
+<a id="runbook-supabase-down"></a>
+**Supabase לא עונה (SupabaseDown).** להיכנס ללוח הבקרה של Supabase. אם הפרויקט מושהה (פרויקט חינמי מושהה אחרי שבוע בלי פעילות), ללחוץ Restore project. אחרת לבדוק את status.supabase.com. בזמן הזה גם התראות האפליקציה לא נשלחות, ולכן ההתראה הזו מגיעה במייל בלבד.
+
+<a id="runbook-push-function-down"></a>
+**פונקציית send-push לא עונה כצפוי (PushFunctionDown).** הבדיקה מצפה ל-401 (הפונקציה חיה ודורשת סוד). לבדוק ב-Supabase → Edge Functions שהיא פרוסה, ולהריץ מחדש את הזרימה Database migrations, שפורסת אותה.
+
+<a id="runbook-price-data-stale"></a>
+**המחירים לא התעדכנו יותר מ-30 שעות (PriceDataStale).** לבדוק ב-GitHub Actions את הזרימה Supermarket prices. אם התזמון הושבת (GitHub משבית תזמונים בריפו ציבורי אחרי 60 יום בלי פעילות), להפעיל אותו מחדש. אם ריצה נתקעה או נכשלה, להריץ אותה ידנית.
+
+<a id="runbook-push-delivery"></a>
+**בעיה במשלוח התראות (PushDeliveryProblem).**
+- מה לבדוק: בלוח Jobs ב-Grafana, תיבת היציאה: כמה שורות ממתינות, גיל השורה הוותיקה, וכמה נכשלו סופית ב-24 השעות האחרונות. ב-Tempo: החיפוש `{name="deliver"}` וקודי הסטטוס לפי שירות (`push.outcomes`).
+- הפונקציה לא נקראת (אין spans של `send-push.run`): ב-SQL Editor להריץ `select public.request_push_send();`. אם התוצאה null, לבדוק שהסודות `push_function_url` ו-`push_secret` קיימים ב-Vault (`infra/scripts/sync-vault.sh`), ושמשימות ה-cron `send-push` ו-`queue-notifications` קיימות ב-`cron.job`.
+- 401 מהפונקציה: `PUSH_SECRET` בסודות הפונקציה שונה מזה שב-Vault. להריץ מחדש את ה-apply של Infrastructure.
+- 500: ביומני הפונקציה ב-Supabase (Edge Functions ← send-push ← Logs) לחפש "send-push failed". סיבות נפוצות: חסר סוד VAPID, או שגיאה ב-RPC.
+- הרבה 401/403 משירות ה-push: מפתחות ה-VAPID התחלפו, והמכשירים צריכים להירשם מחדש (כיבוי והדלקה של ההתראות בהגדרות).
+- 404/410: המכשיר בוטל, והשורה נמחקת לבד. זה תקין.
+- שורות שנכשלו סופית: `select kind, count(*) from notification_outbox where sent_at is null and attempts >= 5 and last_error is distinct from 'expired' group by 1;`. אחרי התיקון אפשר לשלוח אותן שוב עם `update notification_outbox set attempts = 0, claimed_at = null where ...`.
+- שורות שמחכות לשעות השקט אינן "תקועות", ואינן נספרות.
+
+<a id="runbook-database-near-full"></a>
+**מסד הנתונים מעל 400MB מתוך 500MB (DatabaseNearFull).** לבדוק בלוח Database אילו טבלאות הכי גדולות. בדרך כלל הפתרון הוא לקצץ את `price_history` הישנה ולהריץ `vacuum`.
+
+<a id="runbook-frontend-errors"></a>
+**יותר מ-10 שגיאות באפליקציה בשעה (FrontendErrors).** לפתוח את לוח Frontend ואת Frontend Observability, לזהות את סוג השגיאה ואת המסך, ולבדוק אם הפריסה האחרונה גרמה לה.
+
+<a id="runbook-free-tier-budget"></a>
+**שימוש מעל 80% מהמכסה החינמית (FreeTierBudget).** לבדוק בלוח Overview איזה סוג חרג. הצעד הראשון הוא להוריד את `samplingRate` של Faro ל-0.5. ב-Grafana בחינם המגבלות קשיחות: חריגה מפילה נתונים, ולא מחייבת בתשלום.
+
 ---
 
 ## פתרון תקלות

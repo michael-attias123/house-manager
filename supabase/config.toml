@@ -21,3 +21,8 @@ secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
 # x-push-secret header instead of a user's JWT.
 [functions.send-push]
 verify_jwt = false
+
+# Called by Grafana's app-push contact point, which signs each call with an
+# HMAC (ALERT_WEBHOOK_SECRET) and has no Supabase JWT.
+[functions.alert-hook]
+verify_jwt = false

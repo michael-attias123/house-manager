@@ -1,5 +1,6 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Component, useEffect, type ErrorInfo, type ReactNode } from 'react'
 import { useRouteError } from 'react-router-dom'
+import { reportError } from '@/lib/telemetry'
 import { Button } from './ui/Button'
 import { ErrorBox } from './ui/Feedback'
 
@@ -19,6 +20,7 @@ export class ErrorBoundary extends Component<Props, { error: unknown }> {
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
     console.error(error, info.componentStack)
+    reportError(error, { source: 'error_boundary' })
   }
 
   render() {
@@ -29,6 +31,7 @@ export class ErrorBoundary extends Component<Props, { error: unknown }> {
 
 export function RouteError() {
   const error = useRouteError()
+  useEffect(() => reportError(error, { source: 'route_error' }), [error])
   return (
     <div className="mx-auto max-w-md space-y-3 p-6">
       <h1 className="text-lg font-semibold">משהו השתבש</h1>

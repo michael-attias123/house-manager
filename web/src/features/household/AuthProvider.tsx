@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { reportEvent } from '@/lib/telemetry'
 import { diagnoseSignIn, readAuthCallback, withoutAuthParams, type SignInFailure } from './lib/authCallback'
 
 interface AuthState {
@@ -45,7 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const callback = readAuthCallback(window.location.href)
         if (!callback) return
         const env = { storageWritable: storageWritable(), standalone: isStandalone() }
-        setState((s) => ({ ...s, signInFailure: diagnoseSignIn(callback, error, env) }))
+        const failure = diagnoseSignIn(callback, error, env)
+        reportEvent('sign_in_failed', { code: failure.code })
+        setState((s) => ({ ...s, signInFailure: failure }))
         window.history.replaceState(window.history.state, '', withoutAuthParams(window.location.href))
       })
     }

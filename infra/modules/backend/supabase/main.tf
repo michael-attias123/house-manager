@@ -55,6 +55,16 @@ resource "supabase_settings" "this" {
   }
 }
 
+# The Data API settings are not managed here (ignore_changes above), but the
+# imported state shows them. Schema monitoring (aggregate views for Grafana's
+# read-only role) must never be exposed through PostgREST.
+check "data_api_hides_monitoring" {
+  assert {
+    condition     = !contains([for s in split(",", try(jsondecode(supabase_settings.this.api).db_schema, "")) : trimspace(s)], "monitoring")
+    error_message = "Supabase exposes the schema monitoring through the Data API (API settings -> Exposed schemas). Remove it: those views are for grafana_reader only."
+  }
+}
+
 resource "supabase_edge_function_secrets" "this" {
   # project_ref forces a replacement in the provider; it is the same value as
   # the import id, so it never differs from state.
@@ -71,4 +81,22 @@ resource "supabase_edge_function_secrets" "this" {
 
 data "supabase_apikeys" "this" {
   project_ref = supabase_project.this.id
+}
+
+# A dedicated secret key (provider v1.11.0 creates secret keys with the
+# service_role template) for Grafana's scrape of the metrics endpoint
+# (/customer/v1/privileged/metrics, Basic auth as service_role). Supabase has
+# no narrower credential for it. Named, revocable, and seen by nobody: it
+# goes from here to the scrape job. Rotate by renaming it in a PR (the new
+# key is created before the old one is deleted).
+resource "supabase_apikey" "grafana_metrics" {
+  count = var.metrics_key_enabled ? 1 : 0
+
+  project_ref = supabase_project.this.id
+  name        = "grafana_metrics"
+  description = "Grafana Cloud metrics scrape (infra/, managed by OpenTofu)"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }

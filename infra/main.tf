@@ -21,13 +21,25 @@ locals {
     "supabase_db_url",
   ]
 
+  # Keys only monitoring uses. Optional: checks.tf requires them only while
+  # observability_enabled is true (gitsync_github_token only with Git Sync).
+  optional_secret_keys = [
+    "grafana_reader_password",
+    "alert_webhook_secret",
+    "alert_email",
+    "gitsync_github_token",
+  ]
+
   # A missing key becomes "" so that checks.tf reports it by name instead of
   # an "Invalid index" error.
-  secrets = { for k in local.secret_keys : k => lookup(module.secrets.values, k, "") }
+  secrets = { for k in concat(local.secret_keys, local.optional_secret_keys) : k => lookup(module.secrets.values, k, "") }
 
   # Public by design: the browser gets it in the bundle. One value feeds both
   # Cloudflare (VITE_VAPID_PUBLIC_KEY) and Supabase (VAPID_PUBLIC_KEY).
   vapid_public_key = nonsensitive(local.secrets.vapid_public_key)
+
+  # Public by design as well (the bundle, and the uptime check's apikey header).
+  publishable_key = nonsensitive(module.backend.publishable_key)
 }
 
 module "hosting" {
@@ -44,12 +56,19 @@ module "hosting" {
   custom_domain     = var.pages_custom_domain
 
   # Build-time values baked into the public bundle: plain text, not secrets.
-  env_vars = {
-    VITE_SUPABASE_URL             = module.backend.api_url
-    VITE_SUPABASE_PUBLISHABLE_KEY = nonsensitive(module.backend.publishable_key)
-    VITE_VAPID_PUBLIC_KEY         = local.vapid_public_key
-    NODE_VERSION                  = "22"
-  }
+  env_vars = merge(
+    {
+      VITE_SUPABASE_URL             = module.backend.api_url
+      VITE_SUPABASE_PUBLISHABLE_KEY = local.publishable_key
+      VITE_VAPID_PUBLIC_KEY         = local.vapid_public_key
+      NODE_VERSION                  = "22"
+      # Not a VITE_ variable: vite.config.ts compares it with Cloudflare's
+      # CF_PAGES_BRANCH to tell production builds from previews.
+      PRODUCTION_BRANCH = var.production_branch
+    },
+    # The Faro collector URL is public by design. Unset = no telemetry.
+    local.observability ? { VITE_FARO_URL = one(module.observability[*].faro_collector_url) } : {},
+  )
   secret_env_vars = {}
 }
 
@@ -69,13 +88,25 @@ module "backend" {
   google_client_id     = local.secrets.google_client_id
   google_client_secret = local.secrets.google_client_secret
 
-  # Read by supabase/functions/send-push.
-  function_secrets = {
-    VAPID_PUBLIC_KEY  = local.vapid_public_key
-    VAPID_PRIVATE_KEY = local.secrets.vapid_private_key
-    VAPID_SUBJECT     = local.secrets.vapid_subject
-    PUSH_SECRET       = local.secrets.push_secret
-  }
+  # Read by supabase/functions/send-push, and with monitoring on by
+  # functions/_shared/otel.ts (OTLP_*) and alert-hook (ALERT_WEBHOOK_SECRET).
+  # Secrets not listed here are deleted by the apply.
+  function_secrets = merge(
+    {
+      VAPID_PUBLIC_KEY  = local.vapid_public_key
+      VAPID_PRIVATE_KEY = local.secrets.vapid_private_key
+      VAPID_SUBJECT     = local.secrets.vapid_subject
+      PUSH_SECRET       = local.secrets.push_secret
+    },
+    local.observability ? {
+      OTLP_ENDPOINT        = one(module.observability[*].otlp_endpoint)
+      OTLP_BASIC_AUTH      = one(module.observability[*].edge_otlp_basic_auth)
+      ALERT_WEBHOOK_SECRET = local.secrets.alert_webhook_secret
+    } : {},
+  )
+
+  # The key Grafana scrapes the metrics endpoint with.
+  metrics_key_enabled = local.observability
 }
 
 module "repo" {
@@ -85,12 +116,22 @@ module "repo" {
 
   # App secrets only. The bootstrap secrets (provider tokens, state connection, age key,
   # state passphrase) are set by hand and never managed here.
-  actions_secrets = {
-    SUPABASE_DB_URL      = local.secrets.supabase_db_url
-    SUPABASE_PROJECT_REF = var.supabase_project_ref
-  }
+  actions_secrets = merge(
+    {
+      SUPABASE_DB_URL      = local.secrets.supabase_db_url
+      SUPABASE_PROJECT_REF = var.supabase_project_ref
+    },
+    # OTLP export from the price ingest and telemetry.yml (ingest/, scripts/telemetry/).
+    local.observability ? {
+      GRAFANA_OTLP_ENDPOINT = one(module.observability[*].otlp_endpoint)
+      GRAFANA_OTLP_HEADERS  = one(module.observability[*].ci_otlp_headers)
+    } : {},
+  )
 
   protected_branch = var.production_branch
   # The jobs of .github/workflows/ci.yml.
-  required_checks = ["web", "database"]
+  required_checks = concat(
+    ["web", "database"],
+    var.require_observability_checks ? ["observability", "functions"] : [],
+  )
 }

@@ -4,27 +4,41 @@ name: Infrastructure
 # - Pull request: static checks, then a plan, posted as one PR comment that
 #   each run updates.
 # - Main: static checks, then apply, then the Supabase Vault values
-#   (infra/scripts/sync-vault.sh).
+#   (infra/scripts/sync-vault.sh) and the database role passwords
+#   (infra/scripts/sync-db-roles.sh).
 # - Weekly and from the Actions tab: a drift check. A difference opens (or
 #   updates) the issue labelled infra-drift and notifies the admins in the
-#   app; no difference closes it.
+#   app; no difference closes it. A due rotation of a minted token shows up
+#   here as a replacement.
+# - Actions tab with "apply main" ticked: apply main without a PR, for those
+#   rotations.
 # Plan, apply and the drift check skip with a notice until the bootstrap
 # secrets (infra/BOOTSTRAP.md) and infra/secrets.enc.yaml exist, and run
-# bootstrap-check.yml first.
+# bootstrap-check.yml first. The Grafana secrets (items 7 and 8) are needed,
+# and handed to OpenTofu, only while observability_enabled is true in
+# infra/prod.auto.tfvars (infra/scripts/grafana-env.sh).
 on:
   pull_request:
-    paths: ['infra/**', '.github/workflows/infra.yml', '.github/workflows/bootstrap-check.yml']
+    # observability/**: the plan comment shows the rendered alert changes.
+    paths: ['infra/**', 'observability/**', '.github/workflows/infra.yml', '.github/workflows/bootstrap-check.yml']
   push:
     branches: [main]
+    # observability/** is applied by observability-sync.yml.
     paths: ['infra/**', '.github/workflows/infra.yml', '.github/workflows/bootstrap-check.yml']
   schedule:
     - cron: '43 5 * * 1' # Monday 08:43 in Israel (summer time)
   workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Apply main now (for a due token rotation the drift check found) instead of only checking for drift'
+        type: boolean
+        default: false
 
 permissions: {}
 
 env:
-  TOFU_VERSION: 1.10.6
+  # 1.11 or later: write-only arguments (the Git Sync token).
+  TOFU_VERSION: 1.12.8
   TERRAFORM_VERSION: 1.13.4
   TFLINT_VERSION: v0.59.1
   TRIVY_VERSION: v0.70.0
@@ -61,6 +75,13 @@ jobs:
         run: |
           tofu init -backend=false -input=false
           tofu validate -no-color
+      # Renders the alert YAML and dashboard files of its fixture through
+      # mocked providers (no Grafana account needed).
+      - name: tofu test (observability module)
+        working-directory: infra/modules/observability/grafana_cloud
+        run: |
+          tofu init -backend=false -input=false
+          tofu test -no-color
       # Terraform has no state encryption: validate a copy without encryption.tf
       # (and without tofu's provider cache and lock file).
       - uses: hashicorp/setup-terraform@v4.0.1
@@ -115,10 +136,16 @@ jobs:
           GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
           TF_STATE_PASSPHRASE: ${{ secrets.TF_STATE_PASSPHRASE }}
+          GRAFANA_CLOUD_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
+          GRAFANA_SA_TOKEN: ${{ secrets.GRAFANA_SA_TOKEN }}
         run: |
+          names=(CLOUDFLARE_API_TOKEN TF_STATE_PG_CONN SUPABASE_ACCESS_TOKEN GH_ADMIN_TOKEN SOPS_AGE_KEY TF_STATE_PASSPHRASE)
+          # The Grafana tokens only while monitoring is on.
+          if [[ "$(sed -n 's/^observability_enabled *= *\(true\|false\).*/\1/p' infra/prod.auto.tfvars)" == true ]]; then
+            names+=(GRAFANA_CLOUD_TOKEN GRAFANA_SA_TOKEN)
+          fi
           missing=()
-          for name in CLOUDFLARE_API_TOKEN TF_STATE_PG_CONN \
-                      SUPABASE_ACCESS_TOKEN GH_ADMIN_TOKEN SOPS_AGE_KEY TF_STATE_PASSPHRASE; do
+          for name in "${names[@]}"; do
             [[ -n "${!name}" ]] || missing+=("$name")
           done
           ready=false
@@ -172,6 +199,11 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           tofu_wrapper: false
+      - name: Grafana credentials (only while observability_enabled is true)
+        env:
+          GRAFANA_CLOUD_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
+          GRAFANA_SA_TOKEN: ${{ secrets.GRAFANA_SA_TOKEN }}
+        run: ./scripts/grafana-env.sh
       - run: tofu init -input=false
       - id: plan
         run: tofu plan -no-color -input=false -lock-timeout=5m -out=tfplan
@@ -229,7 +261,9 @@ jobs:
 
   apply:
     needs: [static, bootstrap]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.apply))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Required reviewers can be added to this environment in the repo settings.
@@ -257,6 +291,11 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           tofu_wrapper: false
+      - name: Grafana credentials (only while observability_enabled is true)
+        env:
+          GRAFANA_CLOUD_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
+          GRAFANA_SA_TOKEN: ${{ secrets.GRAFANA_SA_TOKEN }}
+        run: ./scripts/grafana-env.sh
       - run: tofu init -input=false
       - run: tofu apply -auto-approve -input=false -no-color -lock-timeout=5m
       - name: Install sops
@@ -273,10 +312,18 @@ jobs:
           # Without it the script takes supabase_db_url from the secrets file.
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: ./scripts/sync-vault.sh
+      # grafana_reader's login and password (a SCRAM verifier). A no-op while
+      # observability_enabled is false.
+      - name: Sync the database role passwords
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: ./scripts/sync-db-roles.sh
 
   drift:
     needs: bootstrap
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' && (github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && !inputs.apply))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -304,6 +351,11 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           tofu_wrapper: false
+      - name: Grafana credentials (only while observability_enabled is true)
+        env:
+          GRAFANA_CLOUD_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
+          GRAFANA_SA_TOKEN: ${{ secrets.GRAFANA_SA_TOKEN }}
+        run: ./scripts/grafana-env.sh
       - run: tofu init -input=false
       # 0 = no difference, 2 = drift (handled below), anything else fails.
       - id: plan
@@ -332,6 +384,9 @@ jobs:
             echo "Found by the weekly drift check: [run log]($RUN_URL), $(date -u +%F)."
             echo "Either put the change into code (a PR to \`infra/\`) or undo it in the dashboard;"
             echo "the next check closes this issue once there is no difference."
+            echo
+            echo "A replaced \`grafana_cloud_access_policy_rotating_token\` is not drift: a minted token"
+            echo "is due for rotation. Apply it with Actions → Infrastructure → Run workflow → \"apply main\"."
             echo
             echo '<details><summary>Show plan</summary>'
             echo

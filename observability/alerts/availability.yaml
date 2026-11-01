@@ -1,0 +1,158 @@
+# Availability: Synthetic Monitoring checks (infra module.uptime, jobs app,
+# supabase-auth and send-push). Schema: observability/README.md.
+# no_data_state OK: while the checks are off (uptime_enabled = false) there is
+# no probe data, and that is not an outage.
+group: availability
+interval: 1m
+rules:
+  # A1. Push does not depend on Cloudflare, so it still arrives.
+  - uid: hm-app-down
+    title: AppDown
+    for: 5m
+    severity: critical
+    push: true
+    summary: "The app is unreachable from the probes (success ratio below 50% over 15 minutes)"
+    summary_he: "האפליקציה לא זמינה"
+    runbook: app-down
+    no_data_state: OK
+    exec_err_state: KeepLast
+    condition: C
+    data:
+      - ref_id: A
+        datasource_uid: grafanacloud-prom
+        relative_time_range: { from: 900, to: 0 }
+        model:
+          refId: A
+          datasource: { type: prometheus, uid: grafanacloud-prom }
+          editorMode: code
+          expr: avg by (job) (avg_over_time(probe_success{job="app"}[15m]))
+          instant: true
+          range: false
+          intervalMs: 60000
+          maxDataPoints: 43200
+      - ref_id: B
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: B
+          datasource: { type: __expr__, uid: __expr__ }
+          type: reduce
+          expression: A
+          reducer: last
+          settings: { mode: dropNN }
+      - ref_id: C
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: C
+          datasource: { type: __expr__, uid: __expr__ }
+          type: threshold
+          expression: B
+          conditions:
+            - type: query
+              evaluator: { type: lt, params: [0.5] }
+              operator: { type: and }
+              query: { params: [C] }
+              reducer: { type: last, params: [] }
+
+  # A2. Also fires when the free project is paused. Email only: the push
+  # path (alert-hook, the outbox) runs on Supabase too.
+  - uid: hm-supabase-down
+    title: SupabaseDown
+    for: 5m
+    severity: critical
+    push: false
+    summary: "Supabase Auth health fails from the probes (success ratio below 50% over 15 minutes); the project may be paused"
+    summary_he: "Supabase לא זמין, ייתכן שהפרויקט הושהה"
+    runbook: supabase-down
+    no_data_state: OK
+    exec_err_state: KeepLast
+    condition: C
+    data:
+      - ref_id: A
+        datasource_uid: grafanacloud-prom
+        relative_time_range: { from: 900, to: 0 }
+        model:
+          refId: A
+          datasource: { type: prometheus, uid: grafanacloud-prom }
+          editorMode: code
+          expr: avg by (job) (avg_over_time(probe_success{job="supabase-auth"}[15m]))
+          instant: true
+          range: false
+          intervalMs: 60000
+          maxDataPoints: 43200
+      - ref_id: B
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: B
+          datasource: { type: __expr__, uid: __expr__ }
+          type: reduce
+          expression: A
+          reducer: last
+          settings: { mode: dropNN }
+      - ref_id: C
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: C
+          datasource: { type: __expr__, uid: __expr__ }
+          type: threshold
+          expression: B
+          conditions:
+            - type: query
+              evaluator: { type: lt, params: [0.5] }
+              operator: { type: and }
+              query: { params: [C] }
+              reducer: { type: last, params: [] }
+
+  # A3. The check expects 401 (deployed, running, sends nothing). It runs
+  # every 15 minutes, hence the 45-minute window and no pending period.
+  - uid: hm-push-function-down
+    title: PushFunctionDown
+    for: 0s
+    severity: warning
+    push: false
+    summary: "The send-push Edge Function does not answer as expected (success ratio below 50% over 45 minutes)"
+    summary_he: "פונקציית שליחת ההתראות לא עונה"
+    runbook: push-function-down
+    no_data_state: OK
+    exec_err_state: KeepLast
+    condition: C
+    data:
+      - ref_id: A
+        datasource_uid: grafanacloud-prom
+        relative_time_range: { from: 2700, to: 0 }
+        model:
+          refId: A
+          datasource: { type: prometheus, uid: grafanacloud-prom }
+          editorMode: code
+          expr: avg by (job) (avg_over_time(probe_success{job="send-push"}[45m]))
+          instant: true
+          range: false
+          intervalMs: 60000
+          maxDataPoints: 43200
+      - ref_id: B
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: B
+          datasource: { type: __expr__, uid: __expr__ }
+          type: reduce
+          expression: A
+          reducer: last
+          settings: { mode: dropNN }
+      - ref_id: C
+        datasource_uid: __expr__
+        relative_time_range: { from: 0, to: 0 }
+        model:
+          refId: C
+          datasource: { type: __expr__, uid: __expr__ }
+          type: threshold
+          expression: B
+          conditions:
+            - type: query
+              evaluator: { type: lt, params: [0.5] }
+              operator: { type: and }
+              query: { params: [C] }
+              reducer: { type: last, params: [] }

@@ -19,9 +19,28 @@ module.secrets.values["vapid_public_key"]
 | | |
 |---|---|
 | Inputs | Store-specific (here `file`). They live in the `module "secrets"` block only. |
-| Output | `values`: a **sensitive `map(string)`** with exactly the keys below. |
-| Keys | `vapid_public_key`, `vapid_private_key`, `vapid_subject`, `push_secret`, `google_client_id`, `google_client_secret`, `supabase_db_password`, `supabase_db_url` |
+| Output | `values`: a **sensitive `map(string)`** with the keys below. |
+| Keys (required) | `vapid_public_key`, `vapid_private_key`, `vapid_subject`, `push_secret`, `google_client_id`, `google_client_secret`, `supabase_db_password`, `supabase_db_url` |
+| Keys (monitoring, optional) | `grafana_reader_password`, `alert_webhook_secret`, `alert_email`, `gitsync_github_token`: required by `checks.tf` only while `observability_enabled = true` (`gitsync_github_token` only with `dashboards_via_git_sync`) |
 | Validation | `checks.tf` and variable validation check the values, whatever the store. |
+
+### Stored versus minted
+
+Only values a person has to choose or bring live in the store. Credentials
+an API can create are minted by OpenTofu and wired straight to their
+consumer, so nobody copies them and they can rotate on their own:
+
+| Credential | Kind | Goes to |
+|---|---|---|
+| the 8 app keys, `grafana_reader_password`, `alert_webhook_secret`, `alert_email`, `gitsync_github_token` | stored (this module) | Supabase, Cloudflare, GitHub, Grafana (data source, contact points, Git Sync) |
+| Edge and CI OTLP tokens | minted, rotating every 90 days (`grafana_cloud_access_policy_rotating_token`) | function secret `OTLP_BASIC_AUTH`, Actions secret `GRAFANA_OTLP_HEADERS` |
+| SM publisher token, SM API token | minted | the SM installation and the `sm` provider |
+| Supabase metrics key | minted (`supabase_apikey.grafana_metrics`) | the Grafana scrape job |
+| Faro collector URL | minted, public | the bundle (`VITE_FARO_URL`) |
+
+Minted values live only in the encrypted state. Once a secret manager
+exists, OpenTofu could also write them into it (e.g. `infisical_secret`) so
+the manager stays the single inventory; that is optional.
 
 Any store that produces the same `values` map is a drop-in replacement. The
 plan after the swap must be empty: same values, same resources.
@@ -223,6 +242,8 @@ Rollback before step 6 is the same one line back to `./modules/secrets/sops`.
 |---|---|
 | `SOPS_AGE_KEY` | removed |
 | `CLOUDFLARE_API_TOKEN`, `SUPABASE_ACCESS_TOKEN`, `GH_ADMIN_TOKEN` | stored in the manager; CI reads them after the OIDC login and exports them as env vars for the providers |
+| `GRAFANA_CLOUD_TOKEN`, `GRAFANA_SA_TOKEN` | the same; `infra/scripts/grafana-env.sh` (which maps them to the provider's variables) reads them from the manager instead |
+| `gitsync_github_token` (in `secrets.enc.yaml`) | moves with the other keys; later replaced by a GitHub App connection |
 | `TF_STATE_PG_CONN` | can move too (the backend needs it before init, so CI fetches it in the same step) |
 | `TF_STATE_PASSPHRASE` | can move too, same way |
 
