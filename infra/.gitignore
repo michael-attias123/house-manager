@@ -20,4 +20,6 @@ secrets.yaml
 secrets.dec.yaml
 *.dec.yaml
 *.decrypted.*
-# .terraform.lock.hcl IS committed.
+# .terraform.lock.hcl IS committed (the root's). Modules get one only when
+# their tests are run on their own (tofu test in a module directory).
+modules/**/.terraform.lock.hcl

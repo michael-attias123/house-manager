@@ -51,6 +51,58 @@ resource "terraform_data" "guards" {
       condition     = can(regex("^postgres(ql)?://[^\\s]+$", local.secrets.supabase_db_url))
       error_message = "supabase_db_url must be a postgresql:// connection string with no spaces (Supabase -> Connect -> Session pooler)."
     }
+
+    # Monitoring secrets: required only while observability_enabled is true,
+    # so today's file (without them) passes.
+    precondition {
+      condition = !var.observability_enabled || alltrue([
+        for k in local.observability_secret_keys : local.secrets[k] != ""
+      ])
+      error_message = "observability_enabled = true needs these keys in infra/secrets.enc.yaml: ${join(", ", local.observability_secret_keys)} (infra/scripts/encrypt-secrets.sh --set KEY; see infra/secrets.example.yaml)."
+    }
+
+    precondition {
+      condition     = !var.observability_enabled || can(regex("^[^@\\s:]+@[^@\\s]+\\.[^@\\s]+$", local.secrets.alert_email))
+      error_message = "alert_email must be a plain email address (no mailto:): the owner's Grafana login address."
+    }
+
+    precondition {
+      condition     = !var.observability_enabled || (length(local.secrets.alert_webhook_secret) >= 32 && can(regex("^[^\\s]+$", local.secrets.alert_webhook_secret)))
+      error_message = "alert_webhook_secret must be at least 32 characters with no whitespace (encrypt-secrets.sh --set generates one)."
+    }
+
+    # Letters and digits only: it travels in a connection string.
+    precondition {
+      condition     = !var.observability_enabled || can(regex("^[A-Za-z0-9]{24,}$", local.secrets.grafana_reader_password))
+      error_message = "grafana_reader_password must be at least 24 letters and digits (encrypt-secrets.sh --set generates one)."
+    }
+
+    precondition {
+      condition     = !(var.observability_enabled && var.dashboards_via_git_sync) || can(regex("^(github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{36,})$", local.secrets.gitsync_github_token))
+      error_message = "gitsync_github_token must be a GitHub token (github_pat_... fine-grained, see BOOTSTRAP.md item 9), or set dashboards_via_git_sync = false."
+    }
+
+    precondition {
+      condition     = !var.observability_enabled || (local.db_host != "" && local.db_name != "")
+      error_message = "supabase_db_url must have the shape postgresql://user:password@host:port/database (the Grafana data source uses its host and database)."
+    }
+  }
+}
+
+locals {
+  # The optional keys the current settings need.
+  observability_secret_keys = concat(
+    ["grafana_reader_password", "alert_webhook_secret", "alert_email"],
+    var.dashboards_via_git_sync ? ["gitsync_github_token"] : [],
+  )
+}
+
+check "faro_origin_matches_hosting" {
+  assert {
+    # The Faro collector accepts only this origin; pages_subdomain must match
+    # the subdomain Cloudflare actually gave the project.
+    condition     = module.hosting.url == local.app_origin
+    error_message = "The app is served from ${module.hosting.url}, but pages_subdomain / pages_custom_domain give ${local.app_origin}: fix prod.auto.tfvars, or Faro rejects every production session."
   }
 }
 
@@ -85,5 +137,7 @@ locals {
     supabase_project_name    = var.supabase_project_name
     supabase_region          = var.supabase_region
     extra_redirect_urls      = join(",", var.extra_redirect_urls)
+    pages_subdomain          = var.pages_subdomain
+    grafana_stack_slug       = var.grafana_stack_slug
   }
 }

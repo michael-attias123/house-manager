@@ -119,3 +119,81 @@ variable "extra_redirect_urls" {
     error_message = "Each extra_redirect_urls entry must be an http(s) URL without spaces or commas."
   }
 }
+
+# ------------------------------------------------------------- observability
+# Grafana Cloud monitoring (observability.tf, modules/observability,
+# modules/uptime). Off until Phase 0 is done (BOOTSTRAP.md, items 7-9):
+# while it is off nothing Grafana-related is planned and no Grafana token is
+# needed.
+
+variable "observability_enabled" {
+  description = "Manage Grafana Cloud monitoring (metrics scrape, Faro, alerting, dashboards). Needs bootstrap items 7-9 and the observability secrets."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "uptime_enabled" {
+  description = "Manage the Synthetic Monitoring checks. Turn it on in the PR after the one that turned on observability_enabled: the SM token must exist before the sm provider can be configured."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.uptime_enabled || var.observability_enabled
+    error_message = "uptime_enabled needs observability_enabled = true (the checks run on the Grafana stack)."
+  }
+}
+
+variable "grafana_stack_slug" {
+  description = "Grafana Cloud stack slug: the <slug> in https://<slug>.grafana.net. Required when observability_enabled is true."
+  type        = string
+  default     = ""
+  nullable    = false
+
+  validation {
+    condition     = var.grafana_stack_slug == "" || can(regex("^[a-z][a-z0-9-]{1,61}[a-z0-9]$", var.grafana_stack_slug))
+    error_message = "grafana_stack_slug must be the stack's slug as in https://<slug>.grafana.net (lowercase letters, digits, hyphens), or \"\" while observability is off."
+  }
+
+  validation {
+    condition     = !var.observability_enabled || var.grafana_stack_slug != ""
+    error_message = "observability_enabled = true needs grafana_stack_slug (the <slug> of https://<slug>.grafana.net)."
+  }
+}
+
+variable "pages_subdomain" {
+  description = "The Pages project's pages.dev host name without .pages.dev (e.g. house-manager-9y8). Gives the app origin without reading the hosting module, which the Faro app needs; checks.tf compares the two."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{0,62}$", var.pages_subdomain))
+    error_message = "pages_subdomain must be the <name> in https://<name>.pages.dev (lowercase letters, digits and hyphens)."
+  }
+}
+
+variable "dashboards_via_git_sync" {
+  description = "true: Grafana Git Sync pulls observability/dashboards from GitHub (needs the gitsync_github_token secret). false: the fallback, OpenTofu applies the same files as grafana_dashboard resources."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+variable "gitsync_token_version" {
+  description = "Bump by one after changing gitsync_github_token: the token is write-only (never in state), so a new version is how a new value reaches Grafana."
+  type        = number
+  default     = 1
+  nullable    = false
+
+  validation {
+    condition     = var.gitsync_token_version >= 1 && floor(var.gitsync_token_version) == var.gitsync_token_version
+    error_message = "gitsync_token_version must be a whole number, 1 or more."
+  }
+}
+
+variable "require_observability_checks" {
+  description = "Add the ci.yml jobs observability and functions to the production branch's required status checks. Turn it on only once both jobs run on main, or every PR is blocked."
+  type        = bool
+  default     = false
+  nullable    = false
+}

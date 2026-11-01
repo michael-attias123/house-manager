@@ -1,0 +1,11 @@
+# Test fixture only: the contract's routing tree.
+receiver: email-owner
+group_by: [alertname]
+group_wait: 30s
+group_interval: 15m
+repeat_interval: 24h
+routes:
+  - receiver: app-push
+    matchers: [{ label: push, match: "=", value: "true" }]
+    continue: true
+  - receiver: email-owner

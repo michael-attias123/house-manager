@@ -22,6 +22,10 @@ on:
         required: false
       TF_STATE_PASSPHRASE:
         required: false
+      GRAFANA_CLOUD_TOKEN:
+        required: false
+      GRAFANA_SA_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -52,6 +56,18 @@ jobs:
           bad() { echo "::error::✗ $*"; echo "- ✗ $*" >> "$GITHUB_STEP_SUMMARY"; failed=1; }
           skip() { echo "::notice::– $*"; echo "- – $*" >> "$GITHUB_STEP_SUMMARY"; }
           bearer() { printf 'Authorization: Bearer %s\n' "$1"; }
+          # Monitoring switches, read like cloudflare_account_id (not secrets).
+          tfvar() { sed -n "s/^$1 *= *\"\{0,1\}\([^\"]*\)\"\{0,1\} *\$/\1/p" infra/prod.auto.tfvars | sed 's/ *#.*//'; }
+          OBSERVABILITY="$(tfvar observability_enabled)"
+          GIT_SYNC="$(tfvar dashboards_via_git_sync)"
+          GRAFANA_SLUG="$(tfvar grafana_stack_slug)"
+          # Monitoring checks only warn while monitoring is off: infra.yml runs
+          # this check before every plan, which must not depend on Grafana yet.
+          monitoring_checks() {
+            if [[ "$OBSERVABILITY" != true ]]; then
+              bad() { echo "::warning::✗ $* (not blocking while observability_enabled is false)"; echo "- ⚠ $*" >> "$GITHUB_STEP_SUMMARY"; }
+            fi
+          }
           EOF
           echo "### Bootstrap check" >> "$GITHUB_STEP_SUMMARY"
 
@@ -252,9 +268,119 @@ jobs:
             else
               ok "$file has every expected key"
             fi
+            # Monitoring keys: required only while observability_enabled is true.
+            optional='["grafana_reader_password", "alert_webhook_secret", "alert_email"]'
+            [[ "$GIT_SYNC" == false ]] || optional='["grafana_reader_password", "alert_webhook_secret", "alert_email", "gitsync_github_token"]'
+            absent="$(sops -d --output-type json "$file" 2>/dev/null | jq -r --argjson keys "$optional" '
+                  . as $s | $keys | map(select(($s[.] | type) != "string" or $s[.] == "")) | join(", ")')"
+            if [[ -z "$absent" ]]; then
+              ok "$file has the monitoring keys"
+            elif [[ "$OBSERVABILITY" == true ]]; then
+              bad "observability_enabled is true but $file lacks: $absent (infra/scripts/encrypt-secrets.sh --set KEY)"
+            else
+              skip "Monitoring keys not set yet (needed before observability_enabled = true): $absent"
+            fi
           else
             bad "SOPS_AGE_KEY cannot decrypt $file: it must be the private key (AGE-SECRET-KEY-…) whose public key is in infra/.sops.yaml"
           fi
+          exit "$failed"
+
+      # Bootstrap items 7 and 8. Checked while observability_enabled is true,
+      # or whenever the secrets exist (so they can be tested before the flag
+      # is turned on). Never needed for a plan while the flag is off.
+      - name: Grafana tokens work
+        id: grafana
+        continue-on-error: true
+        env:
+          GRAFANA_CLOUD_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
+          GRAFANA_SA_TOKEN: ${{ secrets.GRAFANA_SA_TOKEN }}
+        run: |
+          . "$RUNNER_TEMP/check.sh"
+          monitoring_checks
+          if [[ "$OBSERVABILITY" != true && -z "$GRAFANA_CLOUD_TOKEN" && -z "$GRAFANA_SA_TOKEN" ]]; then
+            skip "Grafana: observability_enabled is false and its secrets are not set (infra/BOOTSTRAP.md, items 7 and 8)"
+            exit 0
+          fi
+          if [[ -z "$GRAFANA_SLUG" ]]; then
+            bad "Grafana: set grafana_stack_slug in infra/prod.auto.tfvars (the <slug> of https://<slug>.grafana.net)"
+            exit "$failed"
+          fi
+          out="$RUNNER_TEMP/grafana.json"
+          get() { # token url
+            curl -sS --max-time 20 -o "$out" -w '%{http_code}' -H @<(bearer "$1") "$2" || true
+          }
+          stack_id=""
+          if [[ -z "$GRAFANA_CLOUD_TOKEN" ]]; then
+            bad "GRAFANA_CLOUD_TOKEN is missing: an access policy token from grafana.com (infra/BOOTSTRAP.md, item 7)"
+          else
+            code="$(get "$GRAFANA_CLOUD_TOKEN" "https://grafana.com/api/instances/$GRAFANA_SLUG")"
+            if [[ "$code" == 200 ]] && jq -e '.status == "active"' "$out" >/dev/null; then
+              ok "GRAFANA_CLOUD_TOKEN can read the stack $GRAFANA_SLUG (stacks:read), and it is active"
+              stack_id="$(jq -r '.id' "$out")"
+              region="$(jq -r '.regionSlug' "$out")"
+              code="$(get "$GRAFANA_CLOUD_TOKEN" "https://grafana.com/api/v1/accesspolicies?region=$region")"
+              if [[ "$code" == 200 ]]; then
+                ok "GRAFANA_CLOUD_TOKEN can list access policies (accesspolicies:read)"
+              else
+                bad "GRAFANA_CLOUD_TOKEN cannot list access policies (HTTP $code): add the accesspolicies:read/write/delete scopes (item 7)"
+              fi
+            else
+              bad "GRAFANA_CLOUD_TOKEN cannot read the stack $GRAFANA_SLUG (HTTP $code): check the token, its stacks:read scope and the slug (item 7)"
+            fi
+          fi
+          if [[ -z "$GRAFANA_SA_TOKEN" ]]; then
+            bad "GRAFANA_SA_TOKEN is missing: a service account token of the stack, role Admin (infra/BOOTSTRAP.md, item 8)"
+          else
+            api="https://$GRAFANA_SLUG.grafana.net"
+            code="$(get "$GRAFANA_SA_TOKEN" "$api/api/datasources")"
+            if [[ "$code" == 200 ]]; then ok "GRAFANA_SA_TOKEN can read data sources"; else
+              bad "GRAFANA_SA_TOKEN cannot read data sources (HTTP $code): a service account token with role Admin (item 8)"; fi
+            code="$(get "$GRAFANA_SA_TOKEN" "$api/api/v1/provisioning/contact-points")"
+            if [[ "$code" == 200 ]]; then ok "GRAFANA_SA_TOKEN can read alerting provisioning"; else
+              bad "GRAFANA_SA_TOKEN cannot read alerting provisioning (HTTP $code): role Admin is needed (item 8)"; fi
+            if [[ -n "$stack_id" && "$GIT_SYNC" != false ]]; then
+              code="$(get "$GRAFANA_SA_TOKEN" "$api/apis/provisioning.grafana.app/v0alpha1/namespaces/stacks-$stack_id/repositories")"
+              if [[ "$code" == 200 ]]; then ok "Git Sync is available and GRAFANA_SA_TOKEN can manage it"; else
+                bad "Git Sync repositories cannot be listed (HTTP $code): is Git Sync enabled on the stack (Administration → Provisioning)? Or set dashboards_via_git_sync = false"; fi
+            fi
+          fi
+          rm -f "$out"
+          exit "$failed"
+
+      # Bootstrap item 9: Git Sync's GitHub token, kept in secrets.enc.yaml.
+      - name: Git Sync GitHub token works
+        id: gitsync
+        continue-on-error: true
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          . "$RUNNER_TEMP/check.sh"
+          monitoring_checks
+          file=infra/secrets.enc.yaml
+          if [[ "$GIT_SYNC" == false || ! -f "$file" || -z "$SOPS_AGE_KEY" ]]; then
+            skip "Git Sync token: not used, or secrets.enc.yaml cannot be read here"
+            exit 0
+          fi
+          token="$(sops -d --extract '["gitsync_github_token"]' "$file" 2>/dev/null || true)"
+          if [[ -z "$token" ]]; then
+            if [[ "$OBSERVABILITY" == true ]]; then
+              bad "gitsync_github_token is not set (infra/BOOTSTRAP.md, item 9)"
+            else
+              skip "gitsync_github_token is not set yet (item 9; needed before observability_enabled = true)"
+            fi
+            exit "$failed"
+          fi
+          gh_get() {
+            curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H @<(bearer "$token") \
+              -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY$1" || true
+          }
+          if [[ "$(gh_get "")" == 200 ]]; then ok "gitsync_github_token can read $GITHUB_REPOSITORY"; else
+            bad "gitsync_github_token was refused: a fine-grained token for $GITHUB_REPOSITORY only (item 9)"; fi
+          # Webhooks: read and write is what lets Grafana install its push webhook.
+          if [[ "$(gh_get /hooks)" == 200 ]]; then ok "gitsync_github_token can manage webhooks"; else
+            bad "gitsync_github_token cannot read webhooks: give it Webhooks: Read and write (item 9)"; fi
+          token=
           exit "$failed"
 
       - name: TF_STATE_PASSPHRASE is long enough

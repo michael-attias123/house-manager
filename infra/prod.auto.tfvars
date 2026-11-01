@@ -27,3 +27,21 @@ supabase_region = "eu-central-1"
 
 
 extra_redirect_urls = ["http://localhost:5173/**"]
+
+# The pages.dev host name, as in https://house-manager-9y8.pages.dev (the
+# Faro app's allowed origin; checks.tf warns if it differs from Cloudflare's).
+pages_subdomain = "house-manager-9y8"
+
+# Monitoring (Grafana Cloud). Keep both false until Phase 0 is done
+# (infra/BOOTSTRAP.md, items 7-9) and the observability secrets exist. Then:
+# observability_enabled = true in one PR, uptime_enabled = true in the next.
+# Workflows read these two lines with sed: keep them as `name = true|false`.
+observability_enabled = false
+uptime_enabled        = false
+# The <slug> in https://<slug>.grafana.net.
+grafana_stack_slug = "mmmati0103"
+# Dashboards from observability/dashboards: Git Sync (true) or grafana_dashboard (false).
+dashboards_via_git_sync = true
+# Branch protection requires the ci.yml jobs observability and functions.
+# Turn on once both run on main.
+require_observability_checks = false

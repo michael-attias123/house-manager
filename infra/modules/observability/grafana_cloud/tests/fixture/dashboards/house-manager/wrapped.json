@@ -1,0 +1,12 @@
+{
+  "apiVersion": "dashboard.grafana.app/v1beta1",
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "hm-wrapped"
+  },
+  "spec": {
+    "title": "Fixture wrapped",
+    "panels": [],
+    "schemaVersion": 41
+  }
+}

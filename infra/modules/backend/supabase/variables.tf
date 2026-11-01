@@ -68,6 +68,13 @@ variable "google_client_secret" {
   }
 }
 
+variable "metrics_key_enabled" {
+  description = "Create a secret API key for scraping the project's metrics endpoint (output metrics_secret_key)."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "function_secrets" {
   description = "Edge Function secrets (name -> value). Secrets not listed here are deleted by the apply."
   type        = map(string)
