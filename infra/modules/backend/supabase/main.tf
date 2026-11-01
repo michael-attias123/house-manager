@@ -89,12 +89,15 @@ data "supabase_apikeys" "this" {
 # no narrower credential for it. Named, revocable, and seen by nobody: it
 # goes from here to the scrape job. Rotate by renaming it in a PR (the new
 # key is created before the old one is deleted).
+#
+# No `description`: provider v1.11.0 sends it but reads it back as null, so the
+# create fails with "Provider produced inconsistent result after apply" and
+# leaves a tainted key in the state (seen on the first apply, 2026-11-01).
 resource "supabase_apikey" "grafana_metrics" {
   count = var.metrics_key_enabled ? 1 : 0
 
   project_ref = supabase_project.this.id
   name        = "grafana_metrics"
-  description = "Grafana Cloud metrics scrape (infra/, managed by OpenTofu)"
 
   lifecycle {
     create_before_destroy = true
