@@ -129,7 +129,8 @@ Grafana-related is planned, no Grafana token is used, and the app sends
 nothing. Setup and runbooks: docs/setup.md section 8.
 
 - GitOps: dashboards are files in `observability/dashboards`, pulled by Grafana
-  Git Sync (a UI save becomes a PR); alerts, routing and mute timings are YAML
+  Git Sync (a UI save becomes a PR, in the v2 schema; `validate.py` checks
+  classic and v2 alike, see observability/README.md); alerts, routing and mute timings are YAML
   in `observability/alerts` and `observability/alerting`, rendered by
   `infra/modules/observability/grafana_cloud` and re-applied every 30 min by
   `observability-sync.yml`. Never edit alerts in the Grafana UI. Contact points
