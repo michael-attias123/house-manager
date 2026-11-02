@@ -116,6 +116,8 @@ jobs:
           skip-dirs: infra/.terraform
           severity: HIGH,CRITICAL
           exit-code: '1'
+      - name: Which plans rebuild Pages (scripts/pages-rebuild.sh)
+        run: ./scripts/test-pages-rebuild.sh
 
   # Decides whether plan, apply and drift can run. Reads secret presence only.
   gate:
@@ -298,7 +300,20 @@ jobs:
           GRAFANA_SA_TOKEN: ${{ secrets.GRAFANA_SA_TOKEN }}
         run: ./scripts/grafana-env.sh
       - run: tofu init -input=false
-      - run: tofu apply -auto-approve -input=false -no-color -lock-timeout=5m
+      # Plan to a file, then apply exactly that plan. Its JSON (variables in
+      # clear text: it never leaves the runner and is deleted below) says
+      # whether the Pages build variables change.
+      - name: tofu plan
+        run: tofu plan -input=false -no-color -lock-timeout=5m -out="$RUNNER_TEMP/tfplan"
+      - id: pages
+        name: Do the Pages build variables change?
+        run: |
+          tofu show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.json"
+          changed="$(./scripts/pages-rebuild.sh changed "$RUNNER_TEMP/plan.json")"
+          rm -f "$RUNNER_TEMP/plan.json"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "Pages build variables change: $changed"
+      - run: tofu apply -input=false -no-color -lock-timeout=5m "$RUNNER_TEMP/tfplan"
       - name: Install sops
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
@@ -319,6 +334,16 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: ./scripts/sync-db-roles.sh
+      # Vite inlines VITE_* at build time: a new value reaches the app only
+      # through a new build. Last, so a failed sync above stops it.
+      - name: Rebuild Pages with the new variables
+        if: steps.pages.outputs.changed == 'true'
+        run: |
+          project="$(tofu output -json pages_project)"
+          CF_ACCOUNT_ID="$(jq -r .account_id <<<"$project")" \
+          PAGES_PROJECT="$(jq -r .project_name <<<"$project")" \
+          PRODUCTION_BRANCH="$(jq -r .production_branch <<<"$project")" \
+            ./scripts/pages-rebuild.sh rebuild
 
   drift:
     needs: bootstrap
