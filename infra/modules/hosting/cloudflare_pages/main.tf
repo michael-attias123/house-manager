@@ -24,6 +24,10 @@ resource "cloudflare_pages_project" "this" {
       # Every branch and PR gets a preview URL.
       preview_deployment_setting = "all"
       pr_comments_enabled        = true
+      # A push that touches none of these (observability/, infra/, docs)
+      # builds nothing. An env var change still needs a new build: retry the
+      # latest deployment in Cloudflare.
+      path_includes = length(var.build_watch_paths) > 0 ? var.build_watch_paths : null
     }
   }
 

@@ -32,3 +32,14 @@ output "auth_redirect_urls" {
   description = "Redirect URLs set in Supabase Auth."
   value       = concat(module.hosting.redirect_urls, var.extra_redirect_urls)
 }
+
+# For scripts/pages-rebuild.sh (infra.yml starts a production build after an
+# apply that changes the build variables).
+output "pages_project" {
+  description = "Cloudflare account id, Pages project name and production branch."
+  value = {
+    account_id        = var.cloudflare_account_id
+    project_name      = module.hosting.project_name
+    production_branch = var.production_branch
+  }
+}

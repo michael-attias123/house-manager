@@ -5,7 +5,9 @@ name: Observability sync
 # and module.uptime, scripts/observability/plan_guard.py refuses any change
 # outside them, and the saved plan is applied. Dashboards are pulled by
 # Grafana Git Sync instead (observability/README.md).
-# - Push to main on observability/**: applies the merged change.
+# - Push to main on observability/alerts or alerting: applies the merged
+#   change. Dashboard-only pushes need nothing here (Git Sync pulls them;
+#   with dashboards_via_git_sync = false the 30-minute run applies them).
 # - Every 30 minutes and from the Actions tab: reverts edits made outside git
 #   (API or provisioning) and reports them on the infra-drift issue.
 # Skips with a notice until observability_enabled = true in
@@ -14,7 +16,7 @@ name: Observability sync
 on:
   push:
     branches: [main]
-    paths: ['observability/**']
+    paths: ['observability/alerts/**', 'observability/alerting/**']
   schedule:
     - cron: '11,41 * * * *'
   workflow_dispatch:

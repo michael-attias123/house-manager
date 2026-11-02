@@ -41,6 +41,7 @@ scripts/
   sync-db-roles.sh    CI: login + password (SCRAM verifier) for grafana_reader; no-op while monitoring is off
   scram-verifier.py   password on stdin -> SCRAM-SHA-256 verifier (standard library only)
   grafana-env.sh      CI: Grafana provider env from the two Grafana secrets, only while monitoring is on
+  pages-rebuild.sh    CI: a Pages production build after an apply that changes its build variables (tests: test-pages-rebuild.sh)
 ```
 
 Workflows: `.github/workflows/infra.yml` (plan on PR, apply on merge, weekly
@@ -76,7 +77,10 @@ refused; dashboard saves become a PR through Git Sync.
    (`scripts/encrypt-secrets.sh --set KEY`).
 2. Open a PR. CI runs fmt, validate (OpenTofu and Terraform), tflint, trivy and
    `plan`, and posts the plan as a comment. Read it.
-3. Merge. CI applies that plan.
+3. Merge. CI applies that plan. If it changes the Pages build variables
+   (`VITE_*` and the rest) or build settings, CI then starts a production
+   build itself (`scripts/pages-rebuild.sh`), since Vite bakes them in at
+   build time. Pages builds on its own only for changes under `web/`.
 
 Do not change managed settings in the dashboards: the next apply puts the
 code's value back, and the weekly drift check opens an issue meanwhile.

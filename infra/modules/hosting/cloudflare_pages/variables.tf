@@ -44,6 +44,13 @@ variable "output_dir" {
   default     = "dist"
 }
 
+variable "build_watch_paths" {
+  description = "Repository paths whose changes start a build (Cloudflare build watch paths, wildcard *), for production and previews. Empty: every push builds."
+  type        = list(string)
+  default     = []
+  nullable    = false
+}
+
 variable "env_vars" {
   description = "Build-time variables, stored as plain text in production and preview. Only values that may be public (they end up in the bundle)."
   type        = map(string)
