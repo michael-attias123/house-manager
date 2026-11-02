@@ -19,8 +19,9 @@ name: Infrastructure
 # infra/prod.auto.tfvars (infra/scripts/grafana-env.sh).
 on:
   pull_request:
-    # observability/**: the plan comment shows the rendered alert changes.
-    paths: ['infra/**', 'observability/**', '.github/workflows/infra.yml', '.github/workflows/bootstrap-check.yml']
+    # observability/alerts and alerting: the plan comment shows the rendered
+    # alert changes. Dashboards are not in the plan (Git Sync pulls them).
+    paths: ['infra/**', 'observability/alerts/**', 'observability/alerting/**', '.github/workflows/infra.yml', '.github/workflows/bootstrap-check.yml']
   push:
     branches: [main]
     # observability/** is applied by observability-sync.yml.

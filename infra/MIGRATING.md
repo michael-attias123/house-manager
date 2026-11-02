@@ -145,7 +145,7 @@ any vendor-specific inputs) in `main.tf`.
 
 | Role | Module | Inputs | Outputs |
 |---|---|---|---|
-| hosting | `modules/hosting/cloudflare_pages` | `account_id`, `project_name`, `production_branch`, `github_owner`, `github_repository`, `root_dir`, `build_command`, `output_dir`, `env_vars`, `secret_env_vars`, `custom_domain` | `url`, `redirect_urls`, `project_name` |
+| hosting | `modules/hosting/cloudflare_pages` | `account_id`, `project_name`, `production_branch`, `github_owner`, `github_repository`, `root_dir`, `build_command`, `output_dir`, `build_watch_paths`, `env_vars`, `secret_env_vars`, `custom_domain` | `url`, `redirect_urls`, `project_name` |
 | backend | `modules/backend/supabase` | `project_ref`, `organization_id`, `project_name`, `region`, `database_password`, `site_url`, `redirect_urls`, `google_client_id`, `google_client_secret`, `function_secrets`, `metrics_key_enabled` | `api_url`, `publishable_key`, `function_url`, `metrics_url`, `metrics_secret_key` |
 | secrets | `modules/secrets/sops` | `file` | `values` (see `SECRETS.md`) |
 | repo | `modules/repo/github` | `repository`, `actions_secrets`, `protected_branch`, `required_checks` | `repository` |

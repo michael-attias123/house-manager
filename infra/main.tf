@@ -54,6 +54,8 @@ module "hosting" {
   build_command     = "pnpm build"
   output_dir        = "dist"
   custom_domain     = var.pages_custom_domain
+  # Build only when the app changed (the build reads nothing outside web/).
+  build_watch_paths = ["web/*"]
 
   # Build-time values baked into the public bundle: plain text, not secrets.
   env_vars = merge(
@@ -129,9 +131,11 @@ module "repo" {
   )
 
   protected_branch = var.production_branch
-  # The jobs of .github/workflows/ci.yml.
+  # The jobs of .github/workflows/ci.yml. "changes" is required too: the
+  # others are skipped when their area didn't change, and a skipped job
+  # passes, so a failed change detection must block the merge itself.
   required_checks = concat(
-    ["web", "database"],
+    ["changes", "web", "database"],
     var.require_observability_checks ? ["observability", "functions"] : [],
   )
 }

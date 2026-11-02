@@ -32,7 +32,11 @@ cd web && pnpm dev:demo | pnpm build:demo   # no backend: src/demo fakes Supabas
 cd ingest && python -m pytest   # parser tests (DB test runs via db-test.sh)
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of the above. Run them before pushing.
+CI (`.github/workflows/ci.yml`) runs all of the above, each job only when its
+area changed (`scripts/ci/changes.py`; a branch is compared with main; edits
+to ci.yml or scripts/ci run everything). Cloudflare Pages builds only on
+changes under `web/` (`build_watch_paths`). A new job gets its area there and
+in `required_checks` (`infra/main.tf`). Run the checks before pushing.
 
 ## Adding a feature
 
