@@ -3,10 +3,12 @@
 
 Dashboards (observability/dashboards, read by Grafana Git Sync):
   - classic dashboard JSON (panels, schemaVersion and tags present, which is
-    how Git Sync recognises it) or the dashboard.grafana.app wrapper;
+    how Git Sync recognises it) or the dashboard.grafana.app wrapper, v1
+    (spec = classic JSON) or v2 (spec.elements; what a Grafana UI save writes);
   - a fixed uid with the hm- prefix, a title, no numeric id, unique uids;
   - every data source referenced by an allowed uid (observability/
-    datasources.json), never by name or ${variable};
+    datasources.json), never by name or ${variable} (v2 writes the uid as
+    datasource.name, with the type as the query's group);
   - SQL reads only the monitoring.* views and their listed columns;
   - each folder has a _folder.json; at most 20 synced resources (Cloud Free).
 Alert rules (observability/alerts/<group>.yaml), the notification policy and
@@ -204,15 +206,66 @@ def _datasource_problems(ref: object, cfg: Config) -> list[str]:
     return []
 
 
+def _v2_ref(query: dict) -> object:
+    """A v2 DataQuery's data source as {type, uid}: v2 writes {"name": <uid>}, the type is its group."""
+    ds = query.get("datasource")
+    if isinstance(ds, dict) and "uid" not in ds:
+        return {"uid": ds.get("name"), "type": query.get("group")}
+    return ds
+
+
 def _walk_datasources(node: object, cfg: Config, problems: list[str]) -> None:
     if isinstance(node, dict):
+        v2 = node.get("kind") == "DataQuery"
         for key, value in node.items():
             if key == "datasource":
-                problems.extend(_datasource_problems(value, cfg))
+                problems.extend(_datasource_problems(_v2_ref(node) if v2 else value, cfg))
             _walk_datasources(value, cfg, problems)
     elif isinstance(node, list):
         for item in node:
             _walk_datasources(item, cfg, problems)
+
+
+@dataclass
+class _Query:
+    panel: str
+    ref_id: object
+    datasource: object  # {type, uid}, a name, or None
+    own: bool  # set on the query itself, not inherited from the panel
+    model: dict
+
+
+def _classic_queries(dash: dict) -> tuple[list[object], list[_Query]]:
+    """Panel ids and queries of a classic (v1) dashboard model."""
+    panels = _iter_panels(dash.get("panels") or [])
+    queries = []
+    for panel in panels:
+        for target in panel.get("targets") or []:
+            if isinstance(target, dict):
+                own = target.get("datasource")
+                queries.append(_Query(f"panel {panel.get('title')!r}", target.get("refId"),
+                                      own or panel.get("datasource"), own is not None, target))
+    return [p.get("id") for p in panels], queries
+
+
+def _v2_queries(spec: dict) -> tuple[list[object], list[_Query]]:
+    """Panel ids and queries of a v2 dashboard (what a Grafana UI save writes):
+    spec.elements.<name> = {kind: Panel, spec: {id, title, data: {spec: {queries: [
+    {spec: {refId, query: {kind: DataQuery, group, datasource: {name}, spec}}}]}}}}."""
+    ids, queries = [], []
+    for element in (spec.get("elements") or {}).values():
+        if not isinstance(element, dict) or element.get("kind") != "Panel":
+            continue
+        panel = element.get("spec") or {}
+        ids.append(panel.get("id"))
+        group = (panel.get("data") or {}).get("spec") or {}
+        for item in group.get("queries") or []:
+            q = (item or {}).get("spec") or {}
+            query = q.get("query") or {}
+            ds = _v2_ref(query)
+            queries.append(_Query(f"panel {panel.get('title')!r}", q.get("refId"), ds, ds is not None,
+                                  query.get("spec") or {}))
+    return ids, queries
 
 
 def _iter_panels(panels: list) -> list[dict]:
@@ -241,8 +294,9 @@ def _check_dashboard(path: Path, doc: object, cfg: Config, rep: Report) -> tuple
         if spec.get("uid") not in (None, name):
             rep.error(path, f"metadata.name {name!r} and spec.uid {spec.get('uid')!r} differ")
         dash, uid = spec, name
+        v2 = api.split("/", 1)[1].startswith("v2")
     else:
-        dash, uid = doc, doc.get("uid")
+        dash, uid, v2 = doc, doc.get("uid"), False
         for key, kind in (("panels", list), ("schemaVersion", int), ("tags", list)):
             if not isinstance(dash.get(key), kind):
                 rep.error(path, f"{key!r} is required ({kind.__name__}): Git Sync recognises classic dashboard JSON by panels, schemaVersion and tags")
@@ -254,34 +308,34 @@ def _check_dashboard(path: Path, doc: object, cfg: Config, rep: Report) -> tuple
         rep.error(path, "title is required")
     if dash.get("id") is not None:
         rep.error(path, "remove the numeric dashboard id: Grafana assigns it, the uid is the identity")
-    for var in (dash.get("templating") or {}).get("list") or []:
-        if isinstance(var, dict) and var.get("type") == "datasource":
-            rep.error(path, f"data source variable {var.get('name')!r}: use fixed allowed uids")
+    variables = dash.get("variables") if v2 else (dash.get("templating") or {}).get("list")
+    for var in variables or []:
+        if not isinstance(var, dict):
+            continue
+        if var.get("type") == "datasource" or var.get("kind") == "DatasourceVariable":
+            name_ = var.get("name") or (var.get("spec") or {}).get("name")
+            rep.error(path, f"data source variable {name_!r}: use fixed allowed uids")
 
     problems: list[str] = []
     _walk_datasources(dash, cfg, problems)
     for problem in dict.fromkeys(problems):
         rep.error(path, problem)
 
-    panels = _iter_panels(dash.get("panels") or [])
-    ids = [p.get("id") for p in panels]
-    if any(not isinstance(i, int) for i in ids) or len(set(ids)) != len(ids):
+    ids, queries = _v2_queries(dash) if v2 else _classic_queries(dash)
+    if any(not isinstance(i, int) or isinstance(i, bool) for i in ids) or len(set(ids)) != len(ids):
         rep.error(path, "every panel needs a unique integer id")
-    for panel in panels:
-        label = f"panel {panel.get('title')!r}"
-        panel_ds = panel.get("datasource")
-        for target in panel.get("targets") or []:
-            ds = target.get("datasource") or panel_ds
-            if ds is None:
-                rep.error(path, f"{label}: a query without a data source would use the default one")
-                continue
-            uid_ = ds.get("uid") if isinstance(ds, dict) else ds
-            if uid_ == "-- Mixed --" and target.get("datasource") is None:
-                rep.error(path, f"{label}: a query in a mixed panel needs its own data source")
-            is_sql = cfg.datasources.get(uid_) == "grafana-postgresql-datasource"
-            if is_sql or "rawSql" in target:
-                for problem in check_sql(target.get("rawSql"), cfg.views):
-                    rep.error(path, f"{label}, query {target.get('refId')}: {problem}")
+    for q in queries:
+        ds = q.datasource
+        if ds is None:
+            rep.error(path, f"{q.panel}: a query without a data source would use the default one")
+            continue
+        uid_ = ds.get("uid") if isinstance(ds, dict) else ds
+        if uid_ == "-- Mixed --" and not q.own:
+            rep.error(path, f"{q.panel}: a query in a mixed panel needs its own data source")
+        is_sql = cfg.datasources.get(uid_) == "grafana-postgresql-datasource"
+        if is_sql or "rawSql" in q.model:
+            for problem in check_sql(q.model.get("rawSql"), cfg.views):
+                rep.error(path, f"{q.panel}, query {q.ref_id}: {problem}")
     return (uid, title) if uid else None
 
 
