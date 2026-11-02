@@ -93,6 +93,68 @@ def test_wrapped_dashboard_is_accepted(repo):
     assert errors(repo) == []
 
 
+def v2_dashboard(sql="select table_name, total_bytes from monitoring.table_sizes"):
+    """A small dashboard as a Grafana UI save writes it (dashboard.grafana.app/v2)."""
+    def query(ref, group, ds, spec):
+        return {"kind": "PanelQuery", "spec": {"refId": ref, "hidden": False, "query": {
+            "kind": "DataQuery", "group": group, "version": "v0",
+            "datasource": {"name": ds}, "spec": spec}}}
+
+    def panel(pid, title, *queries):
+        return {"kind": "Panel", "spec": {"id": pid, "title": title, "data": {
+            "kind": "QueryGroup", "spec": {"queries": list(queries), "queryOptions": {}, "transformations": []}}}}
+
+    return {"apiVersion": "dashboard.grafana.app/v2", "kind": "Dashboard",
+            "metadata": {"name": "hm-database"},
+            "spec": {
+                "title": "House manager: database", "tags": [], "variables": [],
+                "annotations": [{"kind": "AnnotationQuery", "spec": {"builtIn": True, "query": {
+                    "kind": "DataQuery", "group": "grafana", "datasource": {"name": "-- Grafana --"}, "spec": {}}}}],
+                "elements": {
+                    "panel-1": panel(1, "Up", query("A", "prometheus", "grafanacloud-prom", {"expr": "max(pg_up)"})),
+                    "panel-2": panel(2, "Tables", query("A", "grafana-postgresql-datasource", "hm-postgres", {"rawSql": sql})),
+                },
+                "layout": {"kind": "GridLayout", "spec": {"items": []}},
+            }}
+
+
+def write_v2(repo, doc):
+    dash_path(repo, "database").write_text(json.dumps(doc), encoding="utf-8")
+
+
+def test_v2_dashboard_is_accepted(repo):
+    write_v2(repo, v2_dashboard())
+    assert errors(repo) == []
+
+
+def first_query(d):
+    return d["spec"]["elements"]["panel-1"]["spec"]["data"]["spec"]["queries"][0]["spec"]["query"]
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda d: first_query(d).update(datasource={"name": "other-prom"}), "not in observability/datasources.json"),
+    (lambda d: first_query(d).update(datasource={"name": "${ds}"}), "data source variable"),
+    (lambda d: first_query(d).update(group="loki"), "expected 'prometheus'"),
+    (lambda d: first_query(d).update(datasource={}), "without a uid"),
+    (lambda d: first_query(d).pop("datasource"), "default one"),
+    (lambda d: d["spec"]["variables"].append({"kind": "DatasourceVariable", "spec": {"name": "ds"}}), "data source variable 'ds'"),
+    (lambda d: d["spec"]["elements"]["panel-2"]["spec"].update(id=1), "unique integer id"),
+    (lambda d: d["metadata"].update(name="database"), "must match"),
+    (lambda d: d["spec"].pop("title"), "title is required"),
+])
+def test_v2_dashboard_mistakes(repo, change, message):
+    doc = v2_dashboard()
+    change(doc)
+    write_v2(repo, doc)
+    assert has(errors(repo), message)
+
+
+def test_v2_dashboard_sql_privacy(repo):
+    write_v2(repo, v2_dashboard("select title from public.notification_outbox"))
+    assert has(errors(repo), "only the views")
+
+
+
 @pytest.mark.parametrize("value,seconds", [("0", 0), ("0s", 0), ("30s", 30), ("1h30m", 5400), ("24h", 86400)])
 def test_parse_duration(value, seconds):
     assert validate.parse_duration(value) == seconds

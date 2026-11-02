@@ -50,7 +50,7 @@ Rules for the JSON (enforced by `validate.py`):
 
 - A fixed `uid` with the `hm-` prefix (at most 40 characters), a `title`, and
   **no numeric `id`** (Grafana assigns it; the uid is the identity).
-- Data sources only as `{ "type": ..., "uid": ... }` with a uid from
+- Data sources only as `{ "type": ..., "uid": ... }` (v2: `{ "name": <uid> }`) with a uid from
   `datasources.json` (or the built-ins `-- Grafana --`, `-- Mixed --`,
   `-- Dashboard --`, `__expr__`). No names, no `${datasource}` variables:
   Git Sync reads the files as they are, so nothing can be templated.
@@ -62,19 +62,26 @@ Rules for the JSON (enforced by `validate.py`):
   a `_folder.json`. At most 20 synced resources in total (Grafana Cloud Free:
   the repository folder, our folders and dashboards; today 6).
 
-### File format: plain dashboard JSON
+### File format: classic or v2
 
-Git Sync accepts two formats for a dashboard file:
+Git Sync accepts these formats for a dashboard file, and `validate.py` checks
+all of them with the same rules:
 
 1. **Classic dashboard JSON** (what "Export" gives you), recognised by having
    `panels`, `schemaVersion` and `tags`. Its `uid` becomes the resource name.
-   **We use this one**: the same files also work with the `grafana_dashboard`
-   resource, the fallback if Git Sync is ever unavailable.
 2. The Kubernetes-style wrapper: `apiVersion: dashboard.grafana.app/v1`,
-   `kind: Dashboard`, `metadata.name` (the uid) and `spec` (the dashboard
-   JSON). Grafana may write this form when it saves from the UI;
-   `validate.py` accepts it too (it checks `spec`, and that `metadata.name`
-   equals `spec.uid`).
+   `kind: Dashboard`, `metadata.name` (the uid) and `spec` (the classic
+   dashboard JSON; `metadata.name` must equal `spec.uid` if both are set).
+3. **v2**: `apiVersion: dashboard.grafana.app/v2`, `metadata.name` (the uid)
+   and a `spec` with `elements` (panels) and `layout`. **A save in the
+   Grafana UI writes this**, so a dashboard edited in the UI turns into v2 in
+   its PR; that is expected, merge it as is. In v2 a query names its data
+   source as `"datasource": {"name": "<uid>"}`, with the type in the query's
+   `group`; the uid must still be one from `datasources.json`.
+
+Mixing formats across files is fine. The `grafana_dashboard` fallback
+(`dashboards_via_git_sync = false`) takes only 1 and 2: before switching to
+it, export each v2 dashboard as classic JSON (the plan names any v2 file).
 
 Folders are directories. `_folder.json` (`apiVersion: folder.grafana.app/v1`,
 `kind: Folder`, `metadata.name` = the folder uid, `spec.title`) keeps the

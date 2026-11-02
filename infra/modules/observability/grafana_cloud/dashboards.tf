@@ -7,6 +7,9 @@
 #   top level here (no repository folder above them).
 # - A dashboard is classic JSON, or the wrapped form (apiVersion, kind,
 #   metadata, spec): then spec is the model and metadata.name its uid.
+#   grafana_dashboard takes only the classic model, so a v2 file (what a
+#   Grafana UI save writes: spec.elements) must be exported as classic JSON
+#   before switching to this fallback; the precondition says which file.
 
 locals {
   dashboards_dir = "${var.config_dir}/dashboards"
@@ -58,6 +61,13 @@ resource "grafana_dashboard" "this" {
   folder      = try(grafana_folder.dashboards[dirname(each.key)].uid, null)
   config_json = each.value
   overwrite   = true
+
+  lifecycle {
+    precondition {
+      condition     = !can(jsondecode(each.value).elements)
+      error_message = "${each.key} is a v2 dashboard (a Grafana UI save). grafana_dashboard needs classic JSON: in Grafana, Export > Export as JSON with the classic model, and commit that file."
+    }
+  }
 }
 
 # Read at plan time (no depends_on on purpose): an empty list until Git Sync
