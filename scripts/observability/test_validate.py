@@ -20,10 +20,22 @@ VIEWS = {
 }
 
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+
 @pytest.fixture
 def repo(tmp_path):
-    """A copy of observability/ (the good fixture) plus an empty docs/setup.md."""
+    """A copy of observability/ plus an empty docs/setup.md. Its dashboards are
+    the classic ones in fixtures/, not the live files: a save in the Grafana
+    UI rewrites a live file (as v2), and these tests must not depend on that.
+    test_repo_files_pass checks the live files."""
     shutil.copytree(REPO / "observability", tmp_path / "observability")
+    folder = tmp_path / "observability" / "dashboards" / "house-manager"
+    for path in folder.glob("*.json"):
+        if path.name != "_folder.json":
+            path.unlink()
+    for path in FIXTURES.glob("*.json"):
+        shutil.copy(path, folder / path.name)
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "setup.md").write_text("# setup\n", encoding="utf-8")
     return tmp_path
@@ -246,7 +258,7 @@ def test_stray_file_and_missing_folder_file(repo):
 
 def test_resource_limit(repo):
     folder = repo / "observability" / "dashboards" / "house-manager"
-    for i in range(16):
+    for i in range(validate.MAX_SYNCED_RESOURCES):
         shutil.copy(dash_path(repo), folder / f"extra{i}.json")
         edit_json(folder / f"extra{i}.json", lambda d, i=i: d.update(uid=f"hm-extra-{i}", title=f"Extra {i}"))
     assert has(errors(repo), "synced resources")
