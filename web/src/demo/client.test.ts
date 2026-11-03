@@ -83,7 +83,7 @@ describe('demo client', () => {
     })
     const rows = data as { item_id: string; tier: number; store_id: number; product_name: string; price: number }[]
     const exactMilk = rows.filter((m) => m.item_id === 'milk' && m.tier === 0)
-    expect(exactMilk).toHaveLength(7)
+    expect(exactMilk).toHaveLength(6) // every demo store sells it
     expect(exactMilk.find((m) => m.store_id === 3)?.price).toBe(6.8)
     const eggs = rows.filter((m) => m.item_id === 'eggs')
     expect(eggs.length).toBeGreaterThan(0)

@@ -17,6 +17,8 @@ max_stores_per_chain: 6
 # store name.
 exclude_store_names: ['^be\b', 'ליקוט', 'אונליין', 'online']
 
+# Carrefour (YAYNO_BITAN_AND_CARREFOUR) was removed: its Stores file never
+# listed a Be'er Sheva branch, so every run failed on it.
 chains:
   - id: shufersal
     name: שופרסל
@@ -27,9 +29,6 @@ chains:
   - id: osher_ad
     name: אושר עד
     scraper: OSHER_AD
-  - id: carrefour
-    name: קרפור
-    scraper: YAYNO_BITAN_AND_CARREFOUR
   - id: tiv_taam
     name: טיב טעם
     scraper: TIV_TAAM
