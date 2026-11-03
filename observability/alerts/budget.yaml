@@ -67,7 +67,7 @@ rules:
           refId: D
           datasource: { type: prometheus, uid: grafanacloud-prom }
           editorMode: code
-          expr: sum(count_over_time(probe_success[24h])) * 30 / 100000 or vector(0)
+          expr: (count(max by (job, probe) (sm_check_info{frequency="300000"})) * 8640 + (count(max by (job, probe) (sm_check_info{frequency="900000"})) or vector(0)) * 2880) / 100000
           instant: true
           range: false
           intervalMs: 60000
