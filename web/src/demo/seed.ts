@@ -61,7 +61,6 @@ export function createSeed(now: Date = new Date()): Db {
       { id: 'shufersal', name: 'שופרסל', chain_code: '7290027600007' },
       { id: 'rami_levy', name: 'רמי לוי', chain_code: '7290058140886' },
       { id: 'osher_ad', name: 'אושר עד', chain_code: '7290103152017' },
-      { id: 'carrefour', name: 'קרפור', chain_code: '7290055700007' },
       { id: 'tiv_taam', name: 'טיב טעם', chain_code: '7290873255550' },
     ],
     stores: [],
@@ -225,7 +224,6 @@ export function createSeed(now: Date = new Date()): Db {
     [2, 'shufersal', '413', 'שופרסל דיל עמק שרה'],
     [7, 'shufersal', '277', 'שופרסל אקספרס באר שבע'],
     [3, 'osher_ad', '22', 'אושר עד באר שבע'],
-    [4, 'carrefour', '480', 'קרפור באר שבע'],
     [5, 'tiv_taam', '12', 'טיב טעם באר שבע'],
   ]
   for (const [storeId, chain, code, name] of stores) {
@@ -265,7 +263,7 @@ export function createSeed(now: Date = new Date()): Db {
   }
   // Produce and fresh chicken: chain-internal codes, priced per kg.
   const fresh: [string, string][] = [['1', 'עגבניה'], ['2', 'מלפפון'], ['3', 'חזה עוף טרי ארוז']]
-  for (const chain of ['rami_levy', 'shufersal', 'osher_ad', 'carrefour', 'tiv_taam']) {
+  for (const chain of ['rami_levy', 'shufersal', 'osher_ad', 'tiv_taam']) {
     for (const [code, name] of fresh) {
       if (chain === 'tiv_taam' && code === '2') continue
       db.products.push({
@@ -283,11 +281,11 @@ export function createSeed(now: Date = new Date()): Db {
     '7290000000090': 6.9, '7290000000100': 10.9, ':1': 7.9, ':2': 5.9, ':3': 36.9,
   }
   // Each store's price level, and what it doesn't sell.
-  const level: Record<number, number> = { 1: 0.92, 6: 0.95, 2: 1.05, 7: 1.18, 3: 0.94, 4: 1.0, 5: 1.12 }
+  const level: Record<number, number> = { 1: 0.92, 6: 0.95, 2: 1.05, 7: 1.18, 3: 0.94, 5: 1.12 }
   const missing: Record<number, string[]> = {
     1: ['7290000000002', '7290000000041'], 6: ['7290000000002', '7290000000021'],
     2: ['7290000000011'], 7: ['7290000000011', '7290000000063', '7290000000051'],
-    3: ['7290000000062'], 4: [], 5: ['7290000000020', '7290000000040', '7290000000060'],
+    3: ['7290000000062'], 5: ['7290000000020', '7290000000040', '7290000000060'],
   }
   for (const [storeId, chain] of stores.map(([id, c]): [number, string] => [id, c])) {
     for (const [key, price] of Object.entries(base)) {
