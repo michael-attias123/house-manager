@@ -120,19 +120,51 @@ jobs:
         run: ./scripts/grafana-env.sh
       - run: tofu init -input=false -no-color > "$RUNNER_TEMP/init.log" || { grep -A8 '^Error' "$RUNNER_TEMP/init.log"; exit 1; }
       # 0 = in sync, 2 = changes (guarded and applied below), anything else fails.
+      # A plan that failed only because Grafana was down (5xx, 429, timeouts:
+      # scripts/observability/transient.py) is retried once after a minute;
+      # if it is still down the run ends with a warning (exitcode=skip) and
+      # the next run, 30 minutes later, catches up. It fails anyway when the
+      # last successful sync is over 6 hours old, so a long outage is seen.
       - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          set +e
-          tofu plan -detailed-exitcode -no-color -input=false -lock-timeout=5m \
-            -target=module.observability -target=module.uptime -out=tfplan > "$RUNNER_TEMP/plan.log" 2>&1
-          code=$?
-          set -e
+          plan() {
+            set +e
+            tofu plan -detailed-exitcode -no-color -input=false -lock-timeout=5m \
+              -target=module.observability -target=module.uptime -out=tfplan > "$RUNNER_TEMP/plan.log" 2>&1
+            code=$?
+            set -e
+          }
+          transient() { python3 ../scripts/observability/transient.py "$RUNNER_TEMP/plan.log"; }
+          plan
+          if [[ "$code" == 1 ]] && transient; then
+            echo "Grafana is unavailable (server errors only); retrying in 60 s."
+            sleep 60
+            plan
+          fi
+          if [[ "$code" == 1 ]] && transient; then
+            last="$(../scripts/observability/last-sync.sh | cut -d' ' -f2)"
+            if [[ -n "$last" ]] && (( $(date -u +%s) - $(date -u -d "$last" +%s) < 6 * 3600 )); then
+              echo "::warning::Grafana is unavailable (server errors only). Nothing changed; the next sync retries. Last successful sync: $last."
+              echo "Skipped: Grafana was unavailable. Last successful sync: $last." >> "$GITHUB_STEP_SUMMARY"
+              echo "exitcode=skip" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Grafana has been unavailable, or the sync has not succeeded, for over 6 hours (last success: ${last:-none})."
+          fi
           echo "exitcode=$code" >> "$GITHUB_OUTPUT"
           case "$code" in
             0) echo "In sync with $GITHUB_SHA: nothing to do." | tee -a "$GITHUB_STEP_SUMMARY" ;;
             2) grep -m1 -E '^Plan: ' "$RUNNER_TEMP/plan.log" || true ;;
             *) grep -A8 '^Error' "$RUNNER_TEMP/plan.log" || echo "The plan failed."; exit 1 ;;
           esac
+      # Marks a run that read Grafana; last-sync.sh looks for it, since a run
+      # skipped by an outage also ends as success.
+      - name: Reached Grafana
+        if: steps.plan.outputs.exitcode != 'skip'
+        run: 'true'
       - name: Guard (only module.observability and module.uptime)
         if: steps.plan.outputs.exitcode == '2'
         id: guard
@@ -156,7 +188,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       # A push run applies a merged commit. A scheduled or manual run with
-      # nothing new in observability/ or infra/ since the last successful sync
+      # nothing new in observability/ or infra/ since the last sync that reached Grafana
       # found an edit made outside git, and says so on the infra-drift issue.
       - name: Report drift not caused by a commit
         if: steps.plan.outputs.exitcode == '2' && github.event_name != 'push'
@@ -164,8 +196,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          last="$(gh api "repos/$GH_REPO/actions/workflows/observability-sync.yml/runs?branch=main&status=success&per_page=1" \
-                    --jq '.workflow_runs[0].head_sha // empty')"
+          last="$(../scripts/observability/last-sync.sh | cut -d' ' -f1)"
           if [[ -n "$last" && "$last" != "$GITHUB_SHA" ]] && git cat-file -e "$last^{commit}" 2>/dev/null \
              && ! git diff --quiet "$last" "$GITHUB_SHA" -- ../observability ../infra; then
             echo "Changes since the last successful sync (${last:0:7}) came from commits: not drift."
