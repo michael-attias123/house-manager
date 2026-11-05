@@ -27,7 +27,7 @@ python -m pytest scripts/observability
 | What | Mechanism | Delay |
 |---|---|---|
 | Dashboards, the folder | Grafana **Git Sync** pulls `observability/dashboards` from `main` (GitHub webhook, 60 s poll as fallback). | seconds |
-| Alert rules, policy, mute timings | `.github/workflows/observability-sync.yml` runs `tofu plan -target=module.observability -target=module.uptime`, `scripts/observability/plan_guard.py` refuses any change outside those modules, then the saved plan is applied. Runs on a push to `main` that touches `observability/**`, every 30 minutes, and from the Actions tab. Its own concurrency group; the state lock keeps it and `infra.yml` from writing at once. | minutes |
+| Alert rules, policy, mute timings | `.github/workflows/observability-sync.yml` runs `tofu plan -target=module.observability -target=module.uptime`, `scripts/observability/plan_guard.py` refuses any change outside those modules, then the saved plan is applied. Runs on a push to `main` that touches `observability/**`, every 30 minutes, and from the Actions tab. Its own concurrency group; the state lock keeps it and `infra.yml` from writing at once. A plan that fails only on Grafana server errors (5xx, 429, timeouts: `scripts/observability/transient.py`) is retried once, then ends with a warning and the next run catches up; it fails when no run has reached Grafana for 6 hours (`scripts/observability/last-sync.sh`). | minutes |
 | Contact points (`email-owner`, `app-push`) | HCL in `infra/modules/observability` (they hold secrets), applied by `infra.yml`. | on merge |
 
 Rules, the policy and mute timings are **provisioned**, so the Grafana UI shows
