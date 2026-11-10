@@ -12,6 +12,10 @@ name: Infrastructure
 #   here as a replacement.
 # - Actions tab with "apply main" ticked: apply main without a PR, for those
 #   rotations.
+# - repository_dispatch platform-changed: shared-platform sends it after a
+#   merge that changes what this stack reads (a rotated Grafana token, say);
+#   it applies main like a push. The downstream plan before that merge runs
+#   in platform-check.yml.
 # Plan, apply and drift run through shared-platform's tofu-stack.yml: the
 # credentials come from the shared Vault with the job's OIDC token (no Actions
 # secrets), and the github provider uses the house-manager-bot GitHub App.
@@ -31,6 +35,8 @@ on:
     paths: ['infra/**', '.github/workflows/infra.yml', '.github/workflows/bootstrap-check.yml']
   schedule:
     - cron: '43 5 * * 1' # Monday 08:43 in Israel (summer time)
+  repository_dispatch:
+    types: [platform-changed]
   workflow_dispatch:
     inputs:
       apply:
@@ -186,6 +192,7 @@ jobs:
     needs: [static, bootstrap]
     if: >-
       github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
+      github.event_name == 'repository_dispatch' ||
       (github.event_name == 'workflow_dispatch' && inputs.apply))
     concurrency:
       group: infra

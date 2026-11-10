@@ -45,9 +45,11 @@ scripts/
 ```
 
 Workflows: `.github/workflows/infra.yml` (plan on PR, apply on merge, weekly
-drift check, "apply main" from the Actions tab for token rotations) and
+drift check, "apply main" from the Actions tab for token rotations, and an
+apply when shared-platform sends `platform-changed`) and
 `.github/workflows/bootstrap-check.yml` (read-only check of the bootstrap
-secrets). `.github/workflows/observability-sync.yml` re-applies only
+secrets). `.github/workflows/platform-check.yml` is shared-platform's
+downstream check: a plan against one of its branches, nothing applied. `.github/workflows/observability-sync.yml` re-applies only
 `module.observability` and `module.uptime` every 30 minutes and on changes to
 `observability/` (the GitOps reconciler).
 
