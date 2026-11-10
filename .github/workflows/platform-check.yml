@@ -1,0 +1,135 @@
+name: Platform check
+
+# Run by shared-platform's downstream check (its downstream.yml) before a
+# shared-platform PR merges: does house-manager still work with that branch?
+# - The path rules of ci.yml (.platform/test_changes.py) against that
+#   branch's tools/changes.py.
+# - A full infra plan through tofu-stack.yml with platform-ref set to that
+#   branch: its tools and actions, and the `shared-platform.git//...?ref=main`
+#   module sources rewritten to it. Nothing is applied.
+# The run's conclusion is the answer; the plan's result (no changes, changes,
+# or a provider was down) is a notice on the run and in its summary. The
+# caller finds the run by its name, which carries report_to.
+# Limits: the `uses: ...@main` lines (tofu-stack.yml itself, vault-env) stay
+# at main, since GitHub can't take a ref from an input there; shared-platform
+# tests those against examples/consumer instead.
+# platform_ref runs that branch's tools with house-manager's main credentials,
+# so the caller dispatches only for branches of shared-platform itself, never
+# for a fork's PR.
+run-name: Platform check ${{ inputs.platform_ref }}${{ inputs.report_to != '' && format(' (shared-platform#{0})', inputs.report_to) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform_ref:
+        description: shared-platform branch, tag or commit to check against
+        type: string
+        required: true
+        default: main
+      report_to:
+        description: The shared-platform PR number this check is for (only names the run)
+        type: string
+        default: ''
+
+permissions: {}
+
+jobs:
+  # Only from main (the -main Vault role is bound to it), with a sane ref,
+  # once VAULT_ADDR exists.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      ready: ${{ steps.gate.outputs.ready }}
+    steps:
+      - id: gate
+        env:
+          REF: ${{ inputs.platform_ref }}
+          REPORT_TO: ${{ inputs.report_to }}
+          VAULT_ADDR: ${{ vars.VAULT_ADDR }}
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo "::error::Run it from main."; exit 1; }
+          [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::bad platform_ref"; exit 1; }
+          [[ -z "$REPORT_TO" || "$REPORT_TO" =~ ^[0-9]+$ ]] || { echo "::error::report_to must be a PR number"; exit 1; }
+          if [[ -z "$VAULT_ADDR" ]]; then
+            echo "::notice::The infra plan is skipped until the VAULT_ADDR variable exists (infra/BOOTSTRAP.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  path-rules:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: michael-attias123/shared-platform
+          ref: ${{ inputs.platform_ref }}
+          path: .shared-platform
+          persist-credentials: false
+      - name: Test the path rules
+        env:
+          SHARED_TOOLS: .shared-platform/tools
+        run: pip install 'pytest>=8' && python -m pytest .platform -q -p no:cacheprovider
+
+  plan:
+    needs: gate
+    if: needs.gate.outputs.ready == 'true'
+    # Its own group: GitHub keeps one pending job per group and cancels the
+    # older one, so sharing infra.yml's could drop a pending apply. The pg
+    # backend's state lock keeps a plan apart from a running apply.
+    concurrency:
+      group: platform-check
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    uses: michael-attias123/shared-platform/.github/workflows/tofu-stack.yml@main
+    with:
+      dir: infra
+      name: infra
+      mode: plan
+      tofu-version: 1.12.8
+      vault-role: house-manager-michael-attias123-house-manager-main
+      vault-export-token: true
+      github-app: true
+      pre-plan: infra/scripts/grafana-env.sh
+      platform-ref: ${{ inputs.platform_ref }}
+      vault-secrets: |
+        kv/data/house-manager/state pg_conn | PG_CONN_STR
+        kv/data/house-manager/state passphrase | TF_VAR_state_passphrase
+        kv/data/house-manager/providers cloudflare_api_token | CLOUDFLARE_API_TOKEN
+        kv/data/house-manager/providers github_app_id | GITHUB_APP_ID
+        kv/data/house-manager/providers github_app_private_key | GITHUB_APP_PRIVATE_KEY
+        kv/data/shared/supabase access_token | SUPABASE_ACCESS_TOKEN
+        kv/data/shared/grafana cloud_token | GRAFANA_CLOUD_TOKEN
+        kv/data/shared/grafana sa_token | GRAFANA_SA_TOKEN
+
+  summary:
+    needs: [path-rules, plan]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - env:
+          EXITCODE: ${{ needs.plan.outputs.exitcode }}
+          REF: ${{ inputs.platform_ref }}
+        run: |
+          case "$EXITCODE" in
+            0) msg="no changes" ;;
+            2) msg="changes (see the plan job's log)" ;;
+            skip) msg="not planned: a provider was down" ;;
+            *) msg="unknown ($EXITCODE)" ;;
+          esac
+          echo "::notice title=infra plan::$msg"
+          printf '### house-manager with shared-platform `%s`\n\nInfra plan: %s\n' "$REF" "$msg" >> "$GITHUB_STEP_SUMMARY"

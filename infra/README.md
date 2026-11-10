@@ -1,7 +1,7 @@
 # infra
 
 All of house-manager's infrastructure as code: Cloudflare Pages, Supabase
-settings and Edge Function secrets, GitHub secrets and branch protection,
+settings and Edge Function secrets, GitHub variables and branch protection,
 and monitoring on Grafana Cloud (off until `observability_enabled = true`).
 OpenTofu runs it; the HCL also runs on Terraform (only `encryption.tf` is
 OpenTofu-only).
@@ -45,9 +45,11 @@ scripts/
 ```
 
 Workflows: `.github/workflows/infra.yml` (plan on PR, apply on merge, weekly
-drift check, "apply main" from the Actions tab for token rotations) and
+drift check, "apply main" from the Actions tab for token rotations, and an
+apply when shared-platform sends `platform-changed`) and
 `.github/workflows/bootstrap-check.yml` (read-only check of the bootstrap
-secrets). `.github/workflows/observability-sync.yml` re-applies only
+secrets). `.github/workflows/platform-check.yml` is shared-platform's
+downstream check: a plan against one of its branches, nothing applied. `.github/workflows/observability-sync.yml` re-applies only
 `module.observability` and `module.uptime` every 30 minutes and on changes to
 `observability/` (the GitOps reconciler).
 
@@ -93,24 +95,24 @@ putting them in shell history:
 
 ```bash
 cd infra
-for v in TF_VAR_state_passphrase PG_CONN_STR \
-         CLOUDFLARE_API_TOKEN SUPABASE_ACCESS_TOKEN GITHUB_TOKEN; do
-  read -rsp "$v: " "$v"; echo; export "$v"
-done
-export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt
+# The same values CI uses, from the shared Vault (shared-platform: make vault-login).
+export VAULT_ADDR=https://vault.158-178-129-140.sslip.io
+kv() { vault kv get -mount=kv -field="$2" "$1"; }
+export VAULT_TOKEN="$(cat ~/.vault-token)"
+export TF_VAR_state_passphrase="$(kv house-manager/state passphrase)"
+export PG_CONN_STR="$(kv house-manager/state pg_conn)"
+export CLOUDFLARE_API_TOKEN="$(kv house-manager/providers cloudflare_api_token)"
+export SUPABASE_ACCESS_TOKEN="$(kv shared/supabase access_token)"
+export GITHUB_TOKEN="$(gh auth token)"   # your own login; CI uses the house-manager-bot app
 
 tofu init
 tofu plan
 ```
 
-| Variable | Bootstrap item |
-|---|---|
-| `TF_VAR_state_passphrase` | `TF_STATE_PASSPHRASE` |
-| `PG_CONN_STR` | `TF_STATE_PG_CONN` (the Session pooler string, port 5432) |
-| `CLOUDFLARE_API_TOKEN`, `SUPABASE_ACCESS_TOKEN` | same names |
-| `GITHUB_TOKEN` | `GH_ADMIN_TOKEN` |
-| `GRAFANA_CLOUD_ACCESS_POLICY_TOKEN`, `GRAFANA_CONNECTIONS_API_ACCESS_TOKEN`, `GRAFANA_FRONTEND_O11Y_API_ACCESS_TOKEN` | all three `GRAFANA_CLOUD_TOKEN`; only while `observability_enabled = true` |
-| `GRAFANA_AUTH` | `GRAFANA_SA_TOKEN`; only while `observability_enabled = true` |
+With `observability_enabled = true`, also export the Grafana tokens:
+`GRAFANA_CLOUD_ACCESS_POLICY_TOKEN`, `GRAFANA_CONNECTIONS_API_ACCESS_TOKEN` and
+`GRAFANA_FRONTEND_O11Y_API_ACCESS_TOKEN` all get `kv shared/grafana cloud_token`, and
+`GRAFANA_AUTH` gets `kv shared/grafana sa_token`.
 
 Checks that need no credentials:
 

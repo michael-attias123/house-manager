@@ -3,6 +3,44 @@
 Everything under `infra/` is managed by OpenTofu, except the few items here.
 You create them once, by hand, in this order. After that, every change is a PR.
 
+## Today: the shared Vault
+
+Every item below lives in the shared Vault (github.com/michael-attias123/shared-platform),
+not in GitHub secrets. Workflows log in with the job's own OIDC token, and the roles come
+from that repo's `projects/house-manager.yaml`. The repo holds no secret at all; it has one
+Actions variable, `VAULT_ADDR`.
+
+1. **Roles:** in shared-platform, `projects/house-manager.yaml` declares the roles (`…-main`,
+   `…-pr`) and the keys. After its merge, `make plan/apply STACK=vault-config` from the laptop.
+2. **Values:** fill them from the laptop, with values never typed into a terminal you don't
+   control:
+   ```bash
+   make vault-login
+   make vault-seed PROJECT=house-manager ARGS="--from-sops <this repo>/infra/secrets.enc.yaml"
+   make vault-seed PROJECT=_shared        # Supabase token, Grafana tokens (kv/shared/*)
+   make github-app APP=house-manager-bot  # the GitHub App that replaces GH_ADMIN_TOKEN
+   ```
+3. **The variable:** `gh variable set VAULT_ADDR -R michael-attias123/house-manager -b https://vault.158-178-129-140.sslip.io`.
+4. **Check:** run **Bootstrap check** from the Actions tab.
+
+| Item | Vault path, key |
+|---|---|
+| 1 State login | `kv/house-manager/state`, `pg_conn` |
+| 2 Cloudflare token | `kv/house-manager/providers`, `cloudflare_api_token` |
+| 3 Supabase token | `kv/shared/supabase`, `access_token` |
+| 4 GitHub access | the `house-manager-bot` GitHub App: `kv/house-manager/providers`, `github_app_id` and `github_app_private_key` |
+| 5 age key | not needed in CI any more; `secrets.enc.yaml` stays only as the fallback until it is removed |
+| 6 State passphrase | `kv/house-manager/state`, `passphrase` (and your password manager) |
+| 7, 8 Grafana tokens | `kv/shared/grafana`, `cloud_token` and `sa_token` |
+| 9 Git Sync token | `kv/house-manager/monitoring`, `gitsync_github_token` |
+| App secrets | `kv/house-manager/app` (the 8 keys of `secrets.example.yaml`) and `kv/house-manager/monitoring` |
+
+**Rotating** any of them: `vault kv patch -mount=kv house-manager/<path> <key>=-` (stdin),
+then **Run workflow → apply main** on Infrastructure, or wait for the next merge. Scheduled jobs
+read a new value on their next run. The sections below describe where each item is created. They
+predate Vault: read "GitHub secret" as "Vault path above" and `encrypt-secrets.sh --set` as
+`vault kv patch`.
+
 ## The principle
 
 **The chicken-and-egg problem.** Before OpenTofu can manage anything, it needs
@@ -454,10 +492,9 @@ the database, and database backups are a separate topic.
 Keep in the password manager: `keys.txt` (age), the state passphrase. Tokens
 can always be regenerated.
 
-## After OIDC and a secret manager
+## Before the shared Vault
 
-GitHub Actions can authenticate to Vault, OpenBao or Infisical per run with
-a short-lived OIDC token (see `SECRETS.md`). Then:
+This is what it looked like before; "Today" at the top is the result.
 
 | Item | Today | After |
 |---|---|---|
@@ -472,5 +509,5 @@ a short-lived OIDC token (see `SECRETS.md`). Then:
 | 9 Git Sync token | `secrets.enc.yaml` | a GitHub App and its `grafana_apps_provisioning_connection_v0alpha1` |
 | + secret manager access | – | an OIDC trust (role, identity ID): config, not a secret |
 
-Layer zero shrinks to the state login, the passphrase and the OIDC trust:
-2–3 items.
+Layer zero shrank to the Vault itself (shared-platform runs it) and one
+variable: no secret is stored in this repo.

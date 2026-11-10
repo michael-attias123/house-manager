@@ -25,13 +25,18 @@ terraform {
       source  = "grafana/grafana"
       version = "~> 4.53"
     }
+    vault = {
+      source  = "hashicorp/vault"
+      version = "~> 5.13"
+    }
   }
 }
 
 # CLOUDFLARE_API_TOKEN
 provider "cloudflare" {}
 
-# GITHUB_TOKEN (the GH_ADMIN_TOKEN secret in CI). The owner is not a credential.
+# GITHUB_TOKEN: in CI an installation token of the house-manager-bot GitHub App
+# (tofu-stack.yml github-app), locally `gh auth token`. The owner is not a credential.
 provider "github" {
   owner = var.github_owner
 }
@@ -39,8 +44,17 @@ provider "github" {
 # SUPABASE_ACCESS_TOKEN
 provider "supabase" {}
 
-# SOPS_AGE_KEY (or SOPS_AGE_KEY_FILE locally)
+# SOPS_AGE_KEY (or SOPS_AGE_KEY_FILE locally). Only the fallback module in
+# modules/secrets/sops uses it (infra/SECRETS.md).
 provider "sops" {}
+
+# The shared Vault: VAULT_ADDR and VAULT_TOKEN from the environment (in CI the
+# vault-env action logs in with the job's OIDC token; locally `vault login`).
+# The JWT login's token may not create child tokens, so the provider uses it
+# as it is.
+provider "vault" {
+  skip_child_token = true
+}
 
 # Grafana Cloud: three instances of one provider (observability.tf has the
 # stack lookup they share). Tokens come from the environment only:

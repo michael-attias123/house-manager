@@ -21,6 +21,21 @@ variable "actions_secrets" {
   }
 }
 
+variable "actions_variables" {
+  description = "Actions variables to manage (name -> value): plain configuration, never secrets."
+  type        = map(string)
+  default     = {}
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for name in keys(var.actions_variables) :
+      can(regex("^[A-Z_][A-Z0-9_]*$", name)) && !startswith(name, "GITHUB_")
+    ])
+    error_message = "actions_variables names must be upper-case letters, digits and underscores, and must not start with GITHUB_."
+  }
+}
+
 variable "protected_branch" {
   description = "Branch to protect, or \"\" to manage no branch protection."
   type        = string

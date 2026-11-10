@@ -2,7 +2,8 @@
 # Gives the database role grafana_reader its login and password, for the
 # Grafana data source hm-postgres (modules/observability). The role itself,
 # nologin and read-only, comes from supabase/migrations/*_monitoring.sql.
-#   grafana_reader_password  from infra/secrets.enc.yaml (SOPS)
+#   grafana_reader_password  GRAFANA_READER_PASSWORD (in CI from the shared Vault,
+#                            kv/house-manager/monitoring), else infra/secrets.enc.yaml (SOPS)
 # Run by .github/workflows/infra.yml after `tofu apply` and sync-vault.sh;
 # safe to run again.
 #
@@ -16,8 +17,9 @@
 # environment and is read with \getenv: never in the SQL text, the command
 # line or the output.
 #
-# Needs: psql, python3, and sops with SOPS_AGE_KEY. The database is
-# SUPABASE_DB_URL, or supabase_db_url from the secrets file when that is unset.
+# Needs: psql and python3; sops with SOPS_AGE_KEY only when a value has to come
+# from the secrets file. The database is SUPABASE_DB_URL, or supabase_db_url
+# from the secrets file when that is unset.
 set -euo pipefail
 
 INFRA_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,14 +40,20 @@ if [[ "$enabled" != true ]]; then
   exit 0
 fi
 
-command -v sops >/dev/null || die "sops is not installed"
 command -v psql >/dev/null || die "psql is not installed"
 command -v python3 >/dev/null || die "python3 is not installed"
-[[ -f "$SECRETS_FILE" ]] || die "$SECRETS_FILE does not exist"
+
+secret_from_file() {
+  command -v sops >/dev/null || die "sops is not installed (or set $2)"
+  [[ -f "$SECRETS_FILE" ]] || die "$SECRETS_FILE does not exist (or set $2)"
+  sops -d --extract "[\"$1\"]" "$SECRETS_FILE" 2>/dev/null
+}
 
 # A missing key is not an error here: checks.tf already fails the plan for it.
-if ! password="$(sops -d --extract '["grafana_reader_password"]' "$SECRETS_FILE" 2>/dev/null)" || [[ -z "$password" ]]; then
-  note "grafana_reader_password is not set in secrets.enc.yaml; nothing to do."
+if [[ -n "${GRAFANA_READER_PASSWORD:-}" ]]; then
+  password="$GRAFANA_READER_PASSWORD"
+elif ! password="$(secret_from_file grafana_reader_password GRAFANA_READER_PASSWORD)" || [[ -z "$password" ]]; then
+  note "grafana_reader_password is not set; nothing to do."
   exit 0
 fi
 [[ "$password" =~ ^[A-Za-z0-9]{24,}$ ]] || die "grafana_reader_password must be at least 24 letters and digits"
@@ -53,7 +61,7 @@ fi
 if [[ -n "${SUPABASE_DB_URL:-}" ]]; then
   db_url="$SUPABASE_DB_URL"
 else
-  db_url="$(sops -d --extract '["supabase_db_url"]' "$SECRETS_FILE")"
+  db_url="$(secret_from_file supabase_db_url SUPABASE_DB_URL)"
 fi
 db_url="$(printf %s "$db_url" | tr -d '\r\n')"
 [[ -n "$db_url" ]] || die "no database URL (SUPABASE_DB_URL or supabase_db_url)"

@@ -1215,7 +1215,9 @@ begin
                    and send_after = '2026-11-02 08:01'::timestamp at time zone 'Asia/Jerusalem')
     from public.notification_outbox where user_id = ido and dedup_key like 'bill:%'
   ), 'bill reminder keys or times wrong';
-  assert not exists (select 1 from public.notification_outbox where body like '%ספוטיפיי%'),
+  -- Only due reminders: a standing order past its date is paid by
+  -- auto_pay_due_bills (it reads current_date) and announced, which is right.
+  assert not exists (select 1 from public.notification_outbox where body like '%ספוטיפיי%' and dedup_key like 'bill:%'),
     'a standing order got a due reminder';
 
   assert (select body from public.notification_outbox where user_id = noa and dedup_key = 'chores:2026-11-02')

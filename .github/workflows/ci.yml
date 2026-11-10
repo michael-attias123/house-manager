@@ -10,7 +10,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Which areas this push touches (scripts/ci/changes.py): a job whose area
+  # Which areas this push touches (shared-platform tools/changes.py with
+  # .platform/changes.toml): a job whose area
   # didn't change is skipped, and a skipped job counts as passed for branch
   # protection. A branch is compared with where it left main, so its last
   # push still runs every job the whole branch needs.
@@ -27,12 +28,20 @@ jobs:
         with:
           fetch-depth: 0
       - run: git fetch --no-tags origin main
+      - uses: actions/checkout@v5
+        with:
+          repository: michael-attias123/shared-platform
+          ref: ${{ vars.PLATFORM_REF || 'main' }}
+          path: .shared-platform
+          persist-credentials: false
       - name: Test the path rules
-        run: pip install 'pytest>=8' && python -m pytest scripts/ci -q
+        env:
+          SHARED_TOOLS: .shared-platform/tools
+        run: pip install 'pytest>=8' && python -m pytest .platform -q -p no:cacheprovider
       - id: diff
         env:
           BEFORE: ${{ github.event.before }}
-        run: python scripts/ci/changes.py | tee -a "$GITHUB_OUTPUT"
+        run: python .shared-platform/tools/changes.py --config .platform/changes.toml | tee -a "$GITHUB_OUTPUT"
 
   web:
     needs: changes

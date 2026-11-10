@@ -20,9 +20,13 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     timeout-minutes: 10
     env:
-      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      # The shared Vault; SUPABASE_DB_URL and the rest come from it (step below).
+      VAULT_ADDR: ${{ vars.VAULT_ADDR }}
       TERMS: ${{ inputs.terms }}
       DUMP: ${{ inputs.dump || github.event_name == 'push' }}
       DEFAULT_TERMS: >-
@@ -36,8 +40,17 @@ jobs:
         מים מינרלים,מים,קולה,מיץ תפוזים,בירה,יין,חיתולים,מגבונים,משחת שיניים,שמפו
     steps:
       - name: Skip until Supabase is connected
-        if: env.SUPABASE_DB_URL == ''
-        run: echo "::notice::Add the SUPABASE_DB_URL secret first (see docs/setup.md)."
+        if: env.VAULT_ADDR == ''
+        run: echo "::notice::Skipped until the VAULT_ADDR variable exists (house-manager infra/BOOTSTRAP.md)."
+      # The job's own OIDC token logs in to the shared Vault (no Actions secrets).
+      - name: Credentials from the shared Vault
+        if: env.VAULT_ADDR != ''
+        uses: michael-attias123/shared-platform/.github/actions/vault-env@main
+        with:
+          addr: ${{ vars.VAULT_ADDR }}
+          role: house-manager-michael-attias123-house-manager-main
+          secrets: |
+            kv/data/house-manager/app supabase_db_url | SUPABASE_DB_URL
       - uses: actions/checkout@v5
         if: env.SUPABASE_DB_URL != ''
       - if: env.SUPABASE_DB_URL != ''

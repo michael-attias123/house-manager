@@ -1,17 +1,21 @@
 name: Observability sync
 
 # Reconciles Grafana alerting (observability/alerts, observability/alerting)
-# and the synthetic checks with git: OpenTofu plans only module.observability
-# and module.uptime, scripts/observability/plan_guard.py refuses any change
-# outside them, and the saved plan is applied. Dashboards are pulled by
-# Grafana Git Sync instead (observability/README.md).
+# and the synthetic checks with git, through shared-platform's tofu-stack.yml:
+# OpenTofu plans only module.observability and module.uptime, the guard
+# refuses any change outside them, and the saved plan is applied. Dashboards
+# are pulled by Grafana Git Sync instead (observability/README.md).
 # - Push to main on observability/alerts or alerting: applies the merged
 #   change. Dashboard-only pushes need nothing here (Git Sync pulls them;
 #   with dashboards_via_git_sync = false the 30-minute run applies them).
 # - Every 30 minutes and from the Actions tab: reverts edits made outside git
-#   (API or provisioning) and reports them on the infra-drift issue.
+#   (API or provisioning) and reports them on the infra-drift issue
+#   (infra/scripts/obs-drift-report.sh).
+# A plan that failed only because Grafana was down is retried once; on a
+# scheduled run it then ends with a warning, unless no run has reached Grafana
+# for 6 hours (shared-platform tools/tofu_plan.sh).
 # Skips with a notice until observability_enabled = true in
-# infra/prod.auto.tfvars and the secrets exist. Setup and env mirror
+# infra/prod.auto.tfvars and the VAULT_ADDR variable exists. Credentials as in
 # infra.yml; keep them in step.
 on:
   push:
@@ -23,13 +27,8 @@ on:
 
 permissions: {}
 
-env:
-  TOFU_VERSION: 1.12.8
-  TF_IN_AUTOMATION: '1'
-  TF_INPUT: '0'
-
 jobs:
-  # Decides whether to reconcile. Reads secret presence only.
+  # Decides whether to reconcile. Reads no secret.
   gate:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -44,30 +43,13 @@ jobs:
           persist-credentials: false
       - id: gate
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          TF_STATE_PG_CONN: ${{ secrets.TF_STATE_PG_CONN }}
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
-          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
-          TF_STATE_PASSPHRASE: ${{ secrets.TF_STATE_PASSPHRASE }}
-          GRAFANA_CLOUD_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
-          GRAFANA_SA_TOKEN: ${{ secrets.GRAFANA_SA_TOKEN }}
+          VAULT_ADDR: ${{ vars.VAULT_ADDR }}
         run: |
           ready=false
           if ! grep -Eq '^[[:space:]]*observability_enabled[[:space:]]*=[[:space:]]*true([[:space:]]|#|$)' infra/prod.auto.tfvars; then
             echo "::notice::Observability sync is off until observability_enabled = true in infra/prod.auto.tfvars."
-            echo "ready=$ready" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          missing=()
-          for name in CLOUDFLARE_API_TOKEN TF_STATE_PG_CONN SUPABASE_ACCESS_TOKEN GH_ADMIN_TOKEN \
-                      SOPS_AGE_KEY TF_STATE_PASSPHRASE GRAFANA_CLOUD_TOKEN GRAFANA_SA_TOKEN; do
-            [[ -n "${!name}" ]] || missing+=("$name")
-          done
-          if (( ${#missing[@]} > 0 )); then
-            echo "::notice::Observability sync is skipped until these secrets exist: ${missing[*]} (see infra/BOOTSTRAP.md)."
-          elif [[ ! -f infra/secrets.enc.yaml ]]; then
-            echo "::notice::Observability sync is skipped until infra/secrets.enc.yaml exists (see infra/BOOTSTRAP.md)."
+          elif [[ -z "$VAULT_ADDR" ]]; then
+            echo "::notice::Observability sync is skipped until the VAULT_ADDR variable exists (infra/BOOTSTRAP.md)."
           else
             ready=true
           fi
@@ -76,149 +58,44 @@ jobs:
   reconcile:
     needs: gate
     if: needs.gate.outputs.ready == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
     # Its own group, not infra.yml's "infra": GitHub keeps one pending job per
     # group and cancels the older one, so a queued reconcile could replace a
     # pending infra.yml apply. Two writers on the state are prevented by the
-    # pg backend's state lock instead (-lock-timeout=5m here and in infra.yml).
+    # pg backend's state lock instead (-lock-timeout=5m in tofu-stack).
     concurrency:
       group: observability-sync
       cancel-in-progress: false
     permissions:
       contents: read
-      issues: write
+      id-token: write
       actions: read
-    defaults:
-      run:
-        working-directory: infra
-    # As in infra.yml. Never echoed; the plan and apply output stay in files
-    # and only their summary lines and resource addresses are printed.
-    env:
-      PG_CONN_STR: ${{ secrets.TF_STATE_PG_CONN }}
-      TF_VAR_state_passphrase: ${{ secrets.TF_STATE_PASSPHRASE }}
-      SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      GITHUB_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
-      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-          # The history decides whether a difference came from a commit.
-          fetch-depth: 0
-      - uses: opentofu/setup-opentofu@v2.0.2
-        with:
-          tofu_version: ${{ env.TOFU_VERSION }}
-          tofu_wrapper: false
-      # The same token mapping as infra.yml (infra/scripts/grafana-env.sh).
-      - name: Grafana credentials
-        env:
-          GRAFANA_CLOUD_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
-          GRAFANA_SA_TOKEN: ${{ secrets.GRAFANA_SA_TOKEN }}
-        run: ./scripts/grafana-env.sh
-      - run: tofu init -input=false -no-color > "$RUNNER_TEMP/init.log" || { grep -A8 '^Error' "$RUNNER_TEMP/init.log"; exit 1; }
-      # 0 = in sync, 2 = changes (guarded and applied below), anything else fails.
-      # A plan that failed only because Grafana was down (5xx, 429, timeouts:
-      # scripts/observability/transient.py) is retried once after a minute;
-      # if it is still down the run ends with a warning (exitcode=skip) and
-      # the next run, 30 minutes later, catches up. It fails anyway when the
-      # last successful sync is over 6 hours old, so a long outage is seen.
-      - id: plan
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          plan() {
-            set +e
-            tofu plan -detailed-exitcode -no-color -input=false -lock-timeout=5m \
-              -target=module.observability -target=module.uptime -out=tfplan > "$RUNNER_TEMP/plan.log" 2>&1
-            code=$?
-            set -e
-          }
-          transient() { python3 ../scripts/observability/transient.py "$RUNNER_TEMP/plan.log"; }
-          plan
-          if [[ "$code" == 1 ]] && transient; then
-            echo "Grafana is unavailable (server errors only); retrying in 60 s."
-            sleep 60
-            plan
-          fi
-          if [[ "$code" == 1 ]] && transient; then
-            last="$(../scripts/observability/last-sync.sh | cut -d' ' -f2)"
-            if [[ -n "$last" ]] && (( $(date -u +%s) - $(date -u -d "$last" +%s) < 6 * 3600 )); then
-              echo "::warning::Grafana is unavailable (server errors only). Nothing changed; the next sync retries. Last successful sync: $last."
-              echo "Skipped: Grafana was unavailable. Last successful sync: $last." >> "$GITHUB_STEP_SUMMARY"
-              echo "exitcode=skip" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            echo "Grafana has been unavailable, or the sync has not succeeded, for over 6 hours (last success: ${last:-none})."
-          fi
-          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
-          case "$code" in
-            0) echo "In sync with $GITHUB_SHA: nothing to do." | tee -a "$GITHUB_STEP_SUMMARY" ;;
-            2) grep -m1 -E '^Plan: ' "$RUNNER_TEMP/plan.log" || true ;;
-            *) grep -A8 '^Error' "$RUNNER_TEMP/plan.log" || echo "The plan failed."; exit 1 ;;
-          esac
-      # Marks a run that read Grafana; last-sync.sh looks for it, since a run
-      # skipped by an outage also ends as success.
-      - name: Reached Grafana
-        if: steps.plan.outputs.exitcode != 'skip'
-        run: 'true'
-      - name: Guard (only module.observability and module.uptime)
-        if: steps.plan.outputs.exitcode == '2'
-        id: guard
-        run: |
-          tofu show -json tfplan > "$RUNNER_TEMP/plan.json"
-          python3 ../scripts/observability/plan_guard.py "$RUNNER_TEMP/plan.json" | tee "$RUNNER_TEMP/changes.txt"
-          echo "count=$(grep -c '^  ' "$RUNNER_TEMP/changes.txt" || true)" >> "$GITHUB_OUTPUT"
-      - name: Apply the saved plan
-        if: steps.plan.outputs.exitcode == '2'
-        run: |
-          if ! tofu apply -input=false -no-color -lock-timeout=5m tfplan > "$RUNNER_TEMP/apply.log" 2>&1; then
-            grep -A8 '^Error' "$RUNNER_TEMP/apply.log" || echo "The apply failed."
-            exit 1
-          fi
-          grep -m1 -E '^Apply complete' "$RUNNER_TEMP/apply.log" || true
-          {
-            echo "Reconciled ${{ steps.guard.outputs.count }} resource(s) from ${GITHUB_SHA:0:7}:"
-            echo
-            echo '```text'
-            cat "$RUNNER_TEMP/changes.txt"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-      # A push run applies a merged commit. A scheduled or manual run with
-      # nothing new in observability/ or infra/ since the last sync that reached Grafana
-      # found an edit made outside git, and says so on the infra-drift issue.
-      - name: Report drift not caused by a commit
-        if: steps.plan.outputs.exitcode == '2' && github.event_name != 'push'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          last="$(../scripts/observability/last-sync.sh | cut -d' ' -f1)"
-          if [[ -n "$last" && "$last" != "$GITHUB_SHA" ]] && git cat-file -e "$last^{commit}" 2>/dev/null \
-             && ! git diff --quiet "$last" "$GITHUB_SHA" -- ../observability ../infra; then
-            echo "Changes since the last successful sync (${last:0:7}) came from commits: not drift."
-            exit 0
-          fi
-          body="$RUNNER_TEMP/comment.md"
-          {
-            echo "The observability sync reverted changes made outside git ($(date -u +'%F %H:%M') UTC, [run log]($RUN_URL))."
-            echo "Edit \`observability/\` in a PR instead; for an emergency, a Grafana silence is fine."
-            echo
-            echo '```text'
-            cat "$RUNNER_TEMP/changes.txt"
-            echo '```'
-          } > "$body"
-          gh label create infra-drift --color D93F0B \
-            --description 'The live infrastructure differs from infra/' --force >/dev/null
-          number="$(gh issue list --label infra-drift --state open --limit 1 --json number --jq '.[0].number // empty')"
-          if [[ -n "$number" ]]; then
-            gh issue comment "$number" --body-file "$body" >/dev/null
-            echo "::warning::Drift reverted: commented on issue #$number."
-          else
-            url="$(gh issue create --title 'Infrastructure drift: the live setup differs from infra/' \
-                     --label infra-drift --body-file "$body")"
-            echo "::warning::Drift reverted: opened $url."
-          fi
+      pull-requests: write
+      issues: write
+    uses: michael-attias123/shared-platform/.github/workflows/tofu-stack.yml@main
+    with:
+      dir: infra
+      name: observability
+      mode: apply
+      tofu-version: 1.12.8
+      targets: |
+        module.observability
+        module.uptime
+      guard-allow: |
+        module.observability
+        module.uptime
+      allow-outage: ${{ github.event_name != 'push' }}
+      vault-role: house-manager-michael-attias123-house-manager-main
+      vault-export-token: true
+      github-app: true
+      pre-plan: infra/scripts/grafana-env.sh
+      post-apply: infra/scripts/obs-drift-report.sh
+      platform-ref: ${{ vars.PLATFORM_REF || 'main' }}
+      vault-secrets: |
+        kv/data/house-manager/state pg_conn | PG_CONN_STR
+        kv/data/house-manager/state passphrase | TF_VAR_state_passphrase
+        kv/data/house-manager/providers cloudflare_api_token | CLOUDFLARE_API_TOKEN
+        kv/data/house-manager/providers github_app_id | GITHUB_APP_ID
+        kv/data/house-manager/providers github_app_private_key | GITHUB_APP_PRIVATE_KEY
+        kv/data/shared/supabase access_token | SUPABASE_ACCESS_TOKEN
+        kv/data/shared/grafana cloud_token | GRAFANA_CLOUD_TOKEN
+        kv/data/shared/grafana sa_token | GRAFANA_SA_TOKEN

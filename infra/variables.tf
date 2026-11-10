@@ -1,6 +1,6 @@
 # Root inputs. Values live in prod.auto.tfvars (committed, nothing secret).
 # Secrets do not come in as variables: they come from module.secrets
-# (infra/secrets.enc.yaml). state_passphrase is declared in encryption.tf.
+# (the shared Vault, kv/house-manager/*). state_passphrase is declared in encryption.tf.
 
 variable "cloudflare_account_id" {
   description = "Cloudflare account id (32 hex characters, dashboard sidebar or URL)."

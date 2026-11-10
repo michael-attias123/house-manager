@@ -1,5 +1,5 @@
-# Repo role, GitHub implementation: the app's Actions secrets and protection
-# of the production branch. The owner comes from the provider (root
+# Repo role, GitHub implementation: the app's Actions secrets and variables,
+# and protection of the production branch. The owner comes from the provider (root
 # versions.tf). The bootstrap secrets are never passed in here.
 
 data "github_repository" "this" {
@@ -14,6 +14,15 @@ resource "github_actions_secret" "this" {
   secret_name = each.key
   # `value` replaces `plaintext_value`, deprecated in provider v6.13.
   value = var.actions_secrets[each.key]
+}
+
+# Plain, non-secret values the workflows read as vars.<NAME>.
+resource "github_actions_variable" "this" {
+  for_each = var.actions_variables
+
+  repository    = data.github_repository.this.name
+  variable_name = each.key
+  value         = each.value
 }
 
 # Signed commits stay optional: requiring them would block merging any PR with
