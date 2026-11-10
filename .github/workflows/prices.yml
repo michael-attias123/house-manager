@@ -18,18 +18,33 @@ concurrency:
 jobs:
   ingest:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     timeout-minutes: 60
     defaults:
       run:
         working-directory: ingest
     env:
-      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      # The shared Vault; SUPABASE_DB_URL and the rest come from it (step below).
+      VAULT_ADDR: ${{ vars.VAULT_ADDR }}
     steps:
       - name: Skip until Supabase is connected
-        if: env.SUPABASE_DB_URL == ''
+        if: env.VAULT_ADDR == ''
         # Runs before checkout, so not in the ingest/ default directory.
         working-directory: .
-        run: echo "::notice::Add the SUPABASE_DB_URL secret to load prices (see docs/setup.md)."
+        run: echo "::notice::Skipped until the VAULT_ADDR variable exists (house-manager infra/BOOTSTRAP.md)."
+      # The job's own OIDC token logs in to the shared Vault (no Actions secrets).
+      - name: Credentials from the shared Vault
+        if: env.VAULT_ADDR != ''
+        uses: michael-attias123/shared-platform/.github/actions/vault-env@main
+        with:
+          addr: ${{ vars.VAULT_ADDR }}
+          role: house-manager-michael-attias123-house-manager-main
+          secrets: |
+            kv/data/house-manager/app supabase_db_url | SUPABASE_DB_URL
+            kv/data/house-manager/generated otlp_endpoint | OTEL_EXPORTER_OTLP_ENDPOINT
+            kv/data/house-manager/generated ci_otlp_headers | OTEL_EXPORTER_OTLP_HEADERS
       - uses: actions/checkout@v5
         if: env.SUPABASE_DB_URL != ''
       - uses: actions/setup-python@v6
@@ -46,10 +61,8 @@ jobs:
       - if: env.SUPABASE_DB_URL != ''
         env:
           CHAINS: ${{ inputs.chains }}
-          # Spans and gauges to Grafana Cloud (house_ingest/telemetry.py). Set by
-          # infra/ when observability is on; empty means telemetry stays off.
-          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.GRAFANA_OTLP_ENDPOINT }}
-          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.GRAFANA_OTLP_HEADERS }}
+          # Spans and gauges to Grafana Cloud (house_ingest/telemetry.py): the
+          # OTEL_EXPORTER_OTLP_* values infra/ writes to kv/house-manager/generated.
           OTEL_SERVICE_NAME: house-ingest
         run: python -m house_ingest run --work-dir work ${CHAINS:+--chains "$CHAINS"}
       # The scraper's status files list every file name it saw: the first thing

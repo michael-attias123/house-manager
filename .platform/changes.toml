@@ -1,0 +1,12 @@
+# CI areas for .github/workflows/ci.yml, read by shared-platform's tools/changes.py:
+# a job runs only when a file under one of its prefixes changed. A file under
+# `all` runs every job. The cases in test_changes.py pin these rules.
+all = [".github/workflows/ci.yml", ".platform/"]
+
+[areas]
+web = ["web/"]
+database = ["supabase/migrations/", "supabase/tests/", "ingest/", "scripts/db-test.sh", "infra/scripts/sync-vault.sh"]
+functions = ["supabase/functions/"]
+# validate.py reads the runbook anchors in docs/setup.md and the contact points in
+# infra/modules/observability.
+observability = ["observability/", "scripts/observability/", "docs/setup.md", "infra/modules/observability/"]

@@ -1,13 +1,16 @@
-"""Tests for changes.py: each path wakes only its own CI jobs."""
+"""house-manager's CI areas (.platform/changes.toml): each path wakes only its own jobs.
+Runs in ci.yml's changes job against shared-platform's tools/changes.py (SHARED_TOOLS)."""
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, os.environ.get("SHARED_TOOLS", str(Path(__file__).resolve().parents[1] / ".shared-platform" / "tools")))
 import changes  # noqa: E402
 
-NONE = {a: False for a in changes.AREAS}
+CONFIG = changes.load(str(Path(__file__).resolve().parent / "changes.toml"))
+NONE = {a: False for a in CONFIG.areas}
 
 
 def only(*areas):
@@ -24,15 +27,9 @@ def only(*areas):
     (["supabase/functions/send-push/index.ts"], only("functions")),
     (["infra/main.tf", "README.md", ".github/workflows/infra.yml"], NONE),
     (["web/a.ts", "supabase/functions/x.ts"], only("web", "functions")),
-    ([".github/workflows/ci.yml"], only(*changes.AREAS)),
+    ([".github/workflows/ci.yml"], only(*CONFIG.areas)),
+    ([".platform/changes.toml"], only(*CONFIG.areas)),
     ([], NONE),
 ])
 def test_areas(files, expected):
-    assert changes.areas_for(files) == expected
-
-
-def test_unknown_runs_everything():
-    assert changes.areas_for(None) == only(*changes.AREAS)
-    assert changes.changed_files("workflow_dispatch", "main", "") is None
-    assert changes.changed_files("push", "main", "0" * 40) is None
-    assert changes.changed_files("push", "main", "f" * 40) is None  # not a commit here
+    assert changes.areas_for(CONFIG, files) == expected

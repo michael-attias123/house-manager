@@ -33,11 +33,12 @@ cd ingest && python -m pytest   # parser tests (DB test runs via db-test.sh)
 ```
 
 CI (`.github/workflows/ci.yml`) runs all of the above, each job only when its
-area changed (`scripts/ci/changes.py`; a branch is compared with main; edits
-to ci.yml or scripts/ci run everything). Cloudflare Pages builds only on
+area changed (`.platform/changes.toml`, read by shared-platform's
+`tools/changes.py`; a branch is compared with main; edits to ci.yml or
+`.platform/` run everything). Cloudflare Pages builds only on
 changes under `web/` (`build_watch_paths`); an infra apply that changes its
-build variables starts a production build itself. A new job gets its area there and
-in `required_checks` (`infra/main.tf`). Run the checks before pushing.
+build variables starts a production build itself. A new job gets its area in
+`.platform/changes.toml` and in `required_checks` (`infra/main.tf`). Run the checks before pushing.
 
 ## Adding a feature
 
@@ -81,6 +82,13 @@ its components.
   (one shared channel per table) and add the table to the `supabase_realtime`
   publication in its migration.
 - No `alert`/`confirm`/`prompt` (blocked in some embeds); use `ConfirmButton`.
+- Secrets live in the shared Vault (github.com/michael-attias123/shared-platform),
+  under `kv/house-manager/*` and `kv/shared/*`; never add an Actions secret.
+  A workflow reads them with that repo's `vault-env` action (or `tofu-stack.yml`'s
+  `vault-secrets`), logging in as `house-manager-michael-attias123-house-manager-main`
+  (`-pr` for PR plans) with `permissions: id-token: write`. A new key is declared in
+  shared-platform's `projects/house-manager.yaml` first. Shared building blocks are
+  used at `@main`, never a tag (that repo's `docs/contract.md`).
 - Server-side multi-row writes go through an RPC (`complete_trip`,
   `save_expense`, `pay_bill`) so they are atomic and validated.
 - Sign-up is limited by `public.allowed_emails` (a trigger on `auth.users`;
@@ -160,7 +168,7 @@ nothing. Setup and runbooks: docs/setup.md section 8.
   - Ingest: only through `ingest/house_ingest/telemetry.py`; spans `ingest.run`,
     `download`, `chain:<id>`, `store`, attributes `chain_id`, `store_code`,
     `items`, `status`. CI runs become traces through
-    `scripts/telemetry/gha_trace.py` (`telemetry.yml`); a new scheduled or
+    shared-platform's `gha-telemetry.yml` (`telemetry.yml`); a new scheduled or
     deploying workflow is added to both lists there.
   - All of them are no-ops without their endpoint and never fail the work.
 - The `monitoring` schema holds aggregate views only (counts, durations, sizes,

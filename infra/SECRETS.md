@@ -1,7 +1,14 @@
 # Secrets: the module interface, and swapping the store
 
-Today the secrets live in `infra/secrets.enc.yaml`, encrypted with SOPS + age.
-The rest of the code does not know that: it only sees one module output.
+**Today the store is the shared Vault**: `module "secrets"` is shared-platform's
+`modules/secrets-vault`, reading `kv/house-manager/app` and `kv/house-manager/monitoring`
+with the token the `vault-env` action exports (CI) or `vault login` (laptop). It returns
+the same `values` map the SOPS module did, so the swap changed no resource. The SOPS files
+below (`secrets.enc.yaml`, `modules/secrets/sops`) stay only as the fallback until they are
+removed; the rest of this page describes that interface and the stores that fit it.
+
+Before that, the secrets lived in `infra/secrets.enc.yaml`, encrypted with SOPS + age.
+The rest of the code does not know which: it only sees one module output.
 
 ## The interface
 

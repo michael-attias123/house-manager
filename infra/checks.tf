@@ -15,7 +15,7 @@ resource "terraform_data" "guards" {
   lifecycle {
     precondition {
       condition     = alltrue([for k in local.secret_keys : local.secrets[k] != ""])
-      error_message = "infra/secrets.enc.yaml must define a non-empty value for each of: ${join(", ", local.secret_keys)} (see infra/secrets.example.yaml)."
+      error_message = "kv/house-manager/app must hold a non-empty value for each of: ${join(", ", local.secret_keys)} (shared-platform: make vault-seed PROJECT=house-manager)."
     }
 
     precondition {
@@ -58,7 +58,7 @@ resource "terraform_data" "guards" {
       condition = !var.observability_enabled || alltrue([
         for k in local.observability_secret_keys : local.secrets[k] != ""
       ])
-      error_message = "observability_enabled = true needs these keys in infra/secrets.enc.yaml: ${join(", ", local.observability_secret_keys)} (infra/scripts/encrypt-secrets.sh --set KEY; see infra/secrets.example.yaml)."
+      error_message = "observability_enabled = true needs these keys in kv/house-manager/monitoring: ${join(", ", local.observability_secret_keys)} (shared-platform: make vault-seed PROJECT=house-manager)."
     }
 
     precondition {
@@ -68,13 +68,13 @@ resource "terraform_data" "guards" {
 
     precondition {
       condition     = !var.observability_enabled || (length(local.secrets.alert_webhook_secret) >= 32 && can(regex("^[^\\s]+$", local.secrets.alert_webhook_secret)))
-      error_message = "alert_webhook_secret must be at least 32 characters with no whitespace (encrypt-secrets.sh --set generates one)."
+      error_message = "alert_webhook_secret must be at least 32 characters with no whitespace (for example: openssl rand -hex 32)."
     }
 
     # Letters and digits only: it travels in a connection string.
     precondition {
       condition     = !var.observability_enabled || can(regex("^[A-Za-z0-9]{24,}$", local.secrets.grafana_reader_password))
-      error_message = "grafana_reader_password must be at least 24 letters and digits (encrypt-secrets.sh --set generates one)."
+      error_message = "grafana_reader_password must be at least 24 letters and digits (for example: openssl rand -hex 16)."
     }
 
     precondition {

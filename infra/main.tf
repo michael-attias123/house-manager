@@ -2,14 +2,18 @@
 # backend, repo); swapping a vendor means a new module with the same inputs
 # and outputs and a changed `source` line here.
 
+# The shared Vault (github.com/michael-attias123/shared-platform): the keys of
+# kv/house-manager/app and kv/house-manager/monitoring, as one map. The SOPS
+# module in modules/secrets/sops returns the same map from secrets.enc.yaml;
+# it stays as the fallback until that file is removed (infra/SECRETS.md).
 module "secrets" {
-  source = "./modules/secrets/sops"
+  source = "git::https://github.com/michael-attias123/shared-platform.git//modules/secrets-vault?ref=main"
 
-  file = "${path.module}/secrets.enc.yaml"
+  paths = ["house-manager/app", "house-manager/monitoring"]
 }
 
 locals {
-  # The keys of secrets.enc.yaml (secrets.example.yaml documents them).
+  # The keys of kv/house-manager/app (shared-platform projects/house-manager.yaml lists them).
   secret_keys = [
     "vapid_public_key",
     "vapid_private_key",
@@ -116,19 +120,11 @@ module "repo" {
 
   repository = var.github_repository
 
-  # App secrets only. The bootstrap secrets (provider tokens, state connection, age key,
-  # state passphrase) are set by hand and never managed here.
-  actions_secrets = merge(
-    {
-      SUPABASE_DB_URL      = local.secrets.supabase_db_url
-      SUPABASE_PROJECT_REF = var.supabase_project_ref
-    },
-    # OTLP export from the price ingest and telemetry.yml (ingest/, scripts/telemetry/).
-    local.observability ? {
-      GRAFANA_OTLP_ENDPOINT = one(module.observability[*].otlp_endpoint)
-      GRAFANA_OTLP_HEADERS  = one(module.observability[*].ci_otlp_headers)
-    } : {},
-  )
+  # No Actions secrets: workflows read theirs from the shared Vault with the
+  # job's OIDC token (shared-platform's vault-env). Plain values only:
+  actions_variables = {
+    SUPABASE_PROJECT_REF = var.supabase_project_ref
+  }
 
   protected_branch = var.production_branch
   # The jobs of .github/workflows/ci.yml. "changes" is required too: the

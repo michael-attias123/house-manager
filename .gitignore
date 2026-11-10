@@ -10,3 +10,6 @@ supabase/.temp/
 supabase/.branches/
 .DS_Store
 .claude/worktrees/
+
+# shared-platform, checked out by CI (tools and actions at PLATFORM_REF)
+.shared-platform/

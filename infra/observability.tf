@@ -100,3 +100,18 @@ module "uptime" {
   publishable_key  = local.publishable_key
   push_url         = module.backend.function_url
 }
+
+# What the scheduled jobs need from this apply (prices.yml, telemetry.yml):
+# the OTLP endpoint and the CI token's headers, which rotate every 90 days.
+# They read it from the shared Vault (the main role may write this path,
+# shared-platform projects/house-manager.yaml), never from Actions secrets.
+resource "vault_kv_secret_v2" "generated" {
+  count = local.observability ? 1 : 0
+
+  mount = "kv"
+  name  = "house-manager/generated"
+  data_json = jsonencode({
+    otlp_endpoint   = one(module.observability[*].otlp_endpoint)
+    ci_otlp_headers = one(module.observability[*].ci_otlp_headers)
+  })
+}
